@@ -5,6 +5,7 @@ Usage:
     python -m scripts.vis_mid_train                     # Train with defaults
     python -m scripts.vis_mid_train --steps=5000        # Custom steps
     python -m scripts.vis_mid_train --resume_step=1000  # Resume from checkpoint
+    python -m scripts.vis_mid_train --text_ratio=0.1    # 10% text, 90% vision
 
 Distributed:
     torchrun --nproc_per_node=8 -m scripts.vis_mid_train
@@ -14,12 +15,12 @@ Stage 2 differences from Stage 1:
     - StepLR scheduler instead of constant LR
     - Lower learning rate (3e-5)
     - Longer sequences (8192)
-
-Note: Text data mixing disabled for tier-1/tier-2 testing (see decisions.md)
+    - Mixed vision + text training (configurable ratio)
 """
 
 import os
 import time
+import random
 from contextlib import nullcontext
 
 import torch
@@ -32,6 +33,7 @@ from nanochat.deepencoder.load_pretrained import (
     load_nanochat_gpt_from_hf,
 )
 from nanochat.vision_dataloader import vision_data_loader
+from nanochat.dataloader import tokenizing_distributed_data_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
 
@@ -40,6 +42,7 @@ from nanochat.common import compute_init, compute_cleanup, print0, autodetect_de
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Data
 data_dir = "data"  # directory containing train.json, val.json, images/
+text_ratio = 0.1  # fraction of steps using text-only data (0.0 = vision only)
 # Model
 base_size = 1024  # image resolution
 # Training
@@ -170,10 +173,9 @@ def get_lr(step):
     return lr * (lr_decay_gamma ** n_decays)
 
 # -----------------------------------------------------------------------------
-# Setup dataloaders (Karpathy style: train loader + val loader builder)
-# Note: Text mixing disabled for tier-1/tier-2 testing (see decisions.md)
-print0(f"Loading data from {data_dir}/")
-train_loader = vision_data_loader(
+# Setup dataloaders (Karpathy style: vision loader + text loader + val loader builder)
+print0(f"Loading vision data from {data_dir}/")
+vision_loader = vision_data_loader(
     B=batch_size, T=seq_len, data_dir=data_dir, device=device,
     tokenizer=tokenizer, split="train", base_size=base_size,
 )
@@ -182,12 +184,20 @@ build_val_loader = lambda: vision_data_loader(
     tokenizer=tokenizer, split="val", base_size=base_size,
 )
 
+# Text data loader (FineWeb parquet files in ~/.cache/nanochat/base_data/)
+text_loader = None
+if text_ratio > 0:
+    print0(f"Loading text data (text_ratio={text_ratio})")
+    text_loader = tokenizing_distributed_data_loader(
+        B=batch_size, T=seq_len, split="train", device=device,
+    )
+
 # Verify first batch
-inputs, targets, pixel_values = next(train_loader)
+inputs, targets, pixel_values = next(vision_loader)
 print0(f"Batch shapes: inputs={inputs.shape}, targets={targets.shape}, pixel_values={pixel_values.shape}")
 
 # Recreate after verification
-train_loader = vision_data_loader(
+vision_loader = vision_data_loader(
     B=batch_size, T=seq_len, data_dir=data_dir, device=device,
     tokenizer=tokenizer, split="train", base_size=base_size,
 )
@@ -225,8 +235,12 @@ for step in range(start_step, steps):
         model.train()
 
     # -------------------------------------------------------------------------
-    # Training step
-    inputs, targets, pixel_values = next(train_loader)
+    # Training step - pick vision or text data
+    if text_loader is not None and random.random() < text_ratio:
+        inputs, targets = next(text_loader)
+        pixel_values = None
+    else:
+        inputs, targets, pixel_values = next(vision_loader)
 
     # Update LR
     current_lr = get_lr(step)
