@@ -22,6 +22,8 @@ SPECIAL_TOKENS = [
     "<|python_end|>",
     "<|output_start|>", # python REPL outputs back to assistant
     "<|output_end|>",
+    # vision tokens
+    "<|image|>", # placeholder for vision embeddings
 ]
 
 # NOTE: this split pattern deviates from GPT-4 in that we use \p{N}{1,2} instead of \p{N}{1,3}
@@ -186,6 +188,22 @@ class RustBPETokenizer:
         pickle_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
         with open(pickle_path, "rb") as f:
             enc = pickle.load(f)
+        # Extend with any new special tokens not in the original pickle
+        existing_special = set(enc._special_tokens.keys())
+        new_special = [t for t in SPECIAL_TOKENS if t not in existing_special]
+        if new_special:
+            # Rebuild encoding with additional special tokens
+            next_id = enc.n_vocab
+            extended_special = dict(enc._special_tokens)
+            for token in new_special:
+                extended_special[token] = next_id
+                next_id += 1
+            enc = tiktoken.Encoding(
+                name=enc.name,
+                pat_str=enc._pat_str,
+                mergeable_ranks=enc._mergeable_ranks,
+                special_tokens=extended_special,
+            )
         return cls(enc, "<|bos|>")
 
     @classmethod
