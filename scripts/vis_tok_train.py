@@ -16,6 +16,7 @@ import time
 from contextlib import nullcontext
 
 import torch
+import torch.distributed as dist
 
 from nanochat.gpt import GPTConfig
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
@@ -124,26 +125,32 @@ if vocab_size > pretrained_vocab_size:
 model.set_image_token_id(image_token_id)
 model = model.to(device)
 
-# Model stats
-num_params = sum(p.numel() for p in model.parameters())
-tokens_per_batch = batch_size * seq_len * ddp_world_size
-# Use GPT's estimate_flops for transformer part (Chinchilla formula)
-num_flops_per_token = model.gpt.estimate_flops()
-print0(f"Number of parameters: {num_params:,}")
-print0(f"Tokens per batch: {tokens_per_batch:,}")
-print0(f"Estimated FLOPs per token: {num_flops_per_token:e}")
-
-# H100 theoretical peak (bfloat16, no sparsity)
-promised_flops_per_sec = 989e12 * ddp_world_size
-
 # -----------------------------------------------------------------------------
-# Resume from checkpoint if requested
+# Resume from checkpoint if requested (BEFORE DDP wrapping)
 start_step = 0
 if resume_step >= 0:
     ckpt_path = os.path.join(checkpoint_dir, f"step_{resume_step}.pt")
     print0(f"Resuming from {ckpt_path}")
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     start_step = resume_step
+
+# -----------------------------------------------------------------------------
+# Wrap with DDP for multi-GPU training
+if ddp:
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[ddp_local_rank])
+raw_model = model.module if ddp else model  # unwrapped model for saving/attributes
+
+# Model stats
+num_params = sum(p.numel() for p in model.parameters())
+tokens_per_batch = batch_size * seq_len * ddp_world_size
+# Use GPT's estimate_flops for transformer part (Chinchilla formula)
+num_flops_per_token = raw_model.gpt.estimate_flops()
+print0(f"Number of parameters: {num_params:,}")
+print0(f"Tokens per batch: {tokens_per_batch:,}")
+print0(f"Estimated FLOPs per token: {num_flops_per_token:e}")
+
+# H100 theoretical peak (bfloat16, no sparsity)
+promised_flops_per_sec = 989e12 * ddp_world_size
 
 # -----------------------------------------------------------------------------
 # Setup optimizer
@@ -198,6 +205,11 @@ for step in range(start_step, steps):
                     val_loss = model(input_ids=val_inputs, targets=val_targets, pixel_values=val_pv)
                 val_loss_sum += val_loss.item()
         val_loss_avg = val_loss_sum / eval_steps
+        # Aggregate validation loss across all ranks
+        if ddp:
+            val_loss_tensor = torch.tensor(val_loss_avg, device=device)
+            dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.AVG)
+            val_loss_avg = val_loss_tensor.item()
         if val_loss_avg < min_val_loss:
             min_val_loss = val_loss_avg
         print0(f"Step {step:05d} | Validation loss: {val_loss_avg:.4f} | min: {min_val_loss:.4f}")
@@ -258,19 +270,20 @@ for step in range(start_step, steps):
            f"dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | total time: {total_training_time/60:.2f}m")
 
     # -------------------------------------------------------------------------
-    # Checkpointing
-    if save_every > 0 and (step + 1) % save_every == 0:
+    # Checkpointing (master only)
+    if master_process and save_every > 0 and (step + 1) % save_every == 0:
         os.makedirs(checkpoint_dir, exist_ok=True)
         ckpt_path = os.path.join(checkpoint_dir, f"step_{step + 1}.pt")
-        torch.save(model.state_dict(), ckpt_path)
+        torch.save(raw_model.state_dict(), ckpt_path)
         print0(f"Saved checkpoint to {ckpt_path}")
 
 # -----------------------------------------------------------------------------
-# Final checkpoint
-os.makedirs(checkpoint_dir, exist_ok=True)
-final_path = os.path.join(checkpoint_dir, f"step_{steps}.pt")
-torch.save(model.state_dict(), final_path)
-print0(f"\nFinal checkpoint saved to {final_path}")
+# Final checkpoint (master only)
+if master_process:
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    final_path = os.path.join(checkpoint_dir, f"step_{steps}.pt")
+    torch.save(raw_model.state_dict(), final_path)
+    print0(f"\nFinal checkpoint saved to {final_path}")
 
 # Final stats
 print0(f"Total training time: {total_training_time / 60:.2f}m")

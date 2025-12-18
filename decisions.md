@@ -129,3 +129,52 @@
 - `vis_tok_train.py`: Config-at-top pattern
 - `vis_mid_train.py`: Matching Stage 2 script
 - `vision_sample.py`: 411 → 148 lines (reuse modules)
+
+## Multi-GPU Training (DDP)
+
+### DDP Wrapper vs Custom Optimizers
+**Decision**: Use standard PyTorch `DistributedDataParallel` wrapper instead of Karpathy's custom optimizers
+**Reason**: Karpathy's `DistMuon`/`DistAdamW` are LLM-specific:
+- `DistMuon` uses Newton-Schulz orthogonalization for 2D matrix params
+- `DistAdamW` requires `param.shape[0] % world_size == 0`
+- Vision encoders (convolutions, layernorms) don't satisfy these constraints
+
+**Implementation**:
+- Wrap model with `torch.nn.parallel.DistributedDataParallel`
+- Use `DistributedSampler` for data sharding
+- Guard checkpoint saves with `if master_process:`
+- Aggregate validation loss with `dist.all_reduce()`
+
+### CLIP patch_embedding Unused Parameter
+**Decision**: Mark `vision_model.embeddings.patch_embedding` as `requires_grad_(False)`
+**Reason**: In our architecture, CLIP receives SAM features as patch embeddings instead of computing its own. The patch_embedding conv is never used.
+**Code**: `nano_deepseek_ocr.py:83`
+```python
+self.vision_model.embeddings.patch_embedding.requires_grad_(False)
+```
+
+### Mixed Training DDP Flag
+**Decision**: Use `find_unused_parameters=(text_ratio > 0)` for vis_mid_train
+**Reason**: With mixed vision + text training:
+- Vision batches: All params used (vision encoder + GPT)
+- Text batches: Vision encoder unused (only GPT)
+
+DDP requires all parameters to receive gradients by default. When `text_ratio > 0`, some steps skip the vision encoder, so we need `find_unused_parameters=True`.
+
+**Code**: `vis_mid_train.py:174-178`
+```python
+if ddp:
+    model = torch.nn.parallel.DistributedDataParallel(
+        model, device_ids=[ddp_local_rank],
+        find_unused_parameters=(text_ratio > 0)
+    )
+```
+
+**Note**: When `text_ratio=0` (vision-only), no flag needed for better performance.
+
+### Tokenizer Location for Text Data
+**Decision**: Copy tokenizer to `~/.cache/nanochat/tokenizer/`
+**Reason**: Text dataloader (`tokenizing_distributed_data_loader`) uses hardcoded path
+**Impact**: Need to ensure tokenizer exists at both locations:
+- `tokenizer/` (project directory, for vision training)
+- `~/.cache/nanochat/tokenizer/` (for text data loader)

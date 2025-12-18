@@ -13,7 +13,9 @@ Sample format:
 import json
 import os
 import torch
+import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from PIL import Image
 from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
 
@@ -72,12 +74,22 @@ def collate_fn(batch, T=4096):
 
 
 def create_vision_loader(B, T, data_dir, tokenizer, split="train", base_size=1024, num_workers=4):
-    """Create vision DataLoader with worker-side processing."""
+    """Create vision DataLoader with worker-side processing.
+
+    Automatically uses DistributedSampler when running in DDP mode.
+    """
     dataset = VisionDataset(data_dir, tokenizer, split, base_size)
+
+    # Use DistributedSampler if in DDP mode
+    ddp = dist.is_initialized()
+    sampler = DistributedSampler(dataset, shuffle=(split == "train")) if ddp else None
+    shuffle = False if ddp else (split == "train")
+
     return DataLoader(
         dataset,
         batch_size=B,
-        shuffle=(split == "train"),
+        shuffle=shuffle,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
         prefetch_factor=2 if num_workers > 0 else None,

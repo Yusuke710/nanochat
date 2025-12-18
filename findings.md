@@ -242,3 +242,120 @@ nanochat/
 │   └── images/                # Image files
 └── checkpoints/               # Model checkpoints
 ```
+
+## Multi-GPU Training Findings
+
+### DDP Parameter Discovery: CLIP patch_embedding
+
+**Problem**: DDP error on first training step:
+```
+Parameter indices which did not receive grad for rank 0: 182
+```
+
+**Investigation**:
+1. Listed all parameters with their indices
+2. Found parameter 182 = `vision_model.embeddings.patch_embedding.weight`
+3. Traced code path in `clip_sdpa.py:133-144`:
+
+```python
+def forward(self, pixel_values, patch_embeds):
+    if patch_embeds is not None:
+        patch_embeds = patch_embeds  # Use SAM features - ALWAYS taken
+    else:
+        patch_embeds = self.patch_embedding(pixel_values)  # NEVER reached
+```
+
+**Root Cause**: CLIP's `patch_embedding` is architecturally bypassed because we pass SAM features as `patch_embeds`. The parameter exists but is never used in the forward pass.
+
+**Fix**: Mark as not requiring gradients:
+```python
+self.vision_model.embeddings.patch_embedding.requires_grad_(False)
+```
+
+This is cleaner than `find_unused_parameters=True` because:
+- No runtime overhead for unused parameter detection
+- Explicitly documents the architectural intent
+- DDP doesn't track non-trainable parameters
+
+### DDP with Mixed Training (Vision + Text)
+
+**Problem**: With `text_ratio > 0`, training crashes on text-only batches:
+```
+Parameter indices which did not receive grad for rank 0: 0 1 2 3 4 5 ... 99+
+```
+
+**Root Cause**: On text-only steps, the entire vision encoder (CLIP, projector) is skipped:
+- Vision batches: `model(input_ids, targets, pixel_values)` → all params used
+- Text batches: `model(input_ids, targets, pixel_values=None)` → vision encoder bypassed
+
+**Analysis of `find_unused_parameters` behavior**:
+- The flag enables per-forward-pass detection of unused parameters
+- Works with random batch selection (90% vision, 10% text)
+- Warning on vision steps is a "false positive" - flag still needed for text steps
+
+**Training log showing mixed batches**:
+```
+step 00000 | loss: 0.0003  # Vision batch (from stage1 checkpoint)
+step 00001 | loss: 0.0002  # Vision batch
+step 00002 | loss: 3.9291  # Text batch (model not trained on text)
+...
+step 00014 | loss: 1.6159  # Another text batch
+```
+
+**Solution**: `find_unused_parameters=(text_ratio > 0)`
+- When `text_ratio=0`: Pure vision training, no flag needed
+- When `text_ratio>0`: Mixed training, flag enables DDP to handle variable parameter usage
+
+### Multi-GPU Training Results
+
+**vis_tok_train.py (Stage 1)** - 2 GPUs, 500 steps:
+```
+step 00000/500 | loss: 5.5341 | mfu: 2.23
+step 00100/500 | loss: 1.1032 | mfu: 6.50
+step 00200/500 | loss: 0.1024 | val loss: 0.1024
+step 00400/500 | loss: 0.0192 | mfu: 6.45
+step 00499/500 | loss: 0.0113 | val loss: 0.0082
+```
+- Final checkpoint: `checkpoints/step_500.pt`
+- Training time: ~3 minutes
+
+**vis_mid_train.py (Stage 2)** - 2 GPUs, vision-only:
+```
+step 00000/20 | loss: 5.5373 | mfu: 2.51
+step 00019/20 | loss: 5.1693 | val loss: 4.7924
+```
+
+**vis_mid_train.py (Stage 2)** - 2 GPUs, mixed training from stage1 checkpoint:
+```
+step 00000/20 | loss: 0.0003  # Vision (from stage1)
+step 00002/20 | loss: 3.9291  # Text (new)
+step 00014/20 | loss: 1.6159  # Text
+step 00019/20 | val loss: 0.0158
+SUCCESS: Stage 2 training converged!
+```
+
+### Memory Considerations
+
+**OOM with longer sequences**: Stage 2 uses seq_len=8192 (vs 4096 in Stage 1)
+- Vision batches: ~514 tokens (short, fits in memory)
+- Text batches: Full 8192 tokens → OOM on 24GB GPU
+
+**Workaround**: Use shorter seq_len for testing:
+- `--seq_len=2048` works with batch_size=1 on 24GB GPU
+- For production, need larger GPUs or gradient checkpointing
+
+### DistributedSampler Integration
+
+Added to `vision_dataloader.py`:
+```python
+from torch.utils.data.distributed import DistributedSampler
+
+ddp = dist.is_initialized()
+sampler = DistributedSampler(dataset, shuffle=(split == "train")) if ddp else None
+shuffle = False if ddp else (split == "train")
+```
+
+Key points:
+- Sampler handles data sharding across GPUs
+- When sampler is used, DataLoader's `shuffle` must be False
+- Each GPU sees 1/N of the data (no duplicates)

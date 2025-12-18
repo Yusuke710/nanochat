@@ -79,6 +79,8 @@ class NanoDeepseekOCR(nn.Module):
         # Vision encoders
         self.sam_model = build_sam_vit_b()
         self.vision_model = build_clip_l()
+        # CLIP's patch_embedding is unused (we use SAM features as patch embeddings instead)
+        self.vision_model.embeddings.patch_embedding.requires_grad_(False)
 
         # Projector: concatenated SAM + CLIP features (2048) -> GPT embedding dim
         projector_cfg = edict(
