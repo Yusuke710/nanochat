@@ -90,14 +90,18 @@
 - seq_len = 8192 (Stage 1 uses 4096)
 
 ## Text Data Mixing (Stage 2)
-**Decision**: Skip text data mixing for tier-1/tier-2 testing
-**Reason**:
-- Text mixing (90% vision + 10% text) is for preventing catastrophic forgetting during full-scale training
-- For tier-1/tier-2 overfitting tests, vision-only data is sufficient
-- The unified tokenizer with `<|image|>` can handle both vision and text data
-- When pixel_values=None, model skips vision encoder and processes as pure text
+**Decision**: Implemented mixed vision + text training via `text_ratio` config
+**Implementation** (Karpathy style - no new abstractions):
+- Added `text_ratio` config var (default 0.1 = 10% text, 90% vision)
+- Reuse existing `tokenizing_distributed_data_loader` for FineWeb text data
+- Simple `if/else` in training loop picks data source per step
+- When `pixel_values=None`, model skips vision encoder and processes as pure text
+- Set `text_ratio=0.0` for vision-only training (tier-1/tier-2 overfitting)
 
-**Future**: Add text mixing when scaling to tier-3 with larger datasets
+**Rationale**:
+- Text mixing prevents catastrophic forgetting of language capabilities
+- DeepSeek-OCR paper uses 90% vision + 10% text ratio
+- Karpathy style: no wrapper classes, logic inline in training loop
 
 ## Unified Tokenizer
 **Decision**: Use single tokenizer with `<|image|>` special token for both vision and text
