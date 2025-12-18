@@ -2,6 +2,24 @@
 
 Karpathy-style vision dataloader extending nanochat's Task pattern.
 
+## Resolution Mode: Base Only (No Gundam)
+
+Start simple with fixed resolution. From the DeepSeek-OCR paper:
+
+| Mode | Resolution | Tokens | Process |
+|------|------------|--------|---------|
+| Tiny | 512 | 64 | resize |
+| Small | 640 | 100 | resize |
+| **Base** | **1024** | **256** | **padding** |
+| Large | 1280 | 400 | padding |
+| Gundam | 640+1024 | n×100+256 | crops+global |
+
+**We use Base mode only** for initial implementation:
+- All images padded to 1024×1024
+- Fixed 256 tokens per image (actually 273 with formula)
+- Simple `torch.stack()` for batching
+- Add Gundam (dynamic crops) later once pipeline works
+
 ## Design Principles
 
 | Principle | How It's Applied |
@@ -21,7 +39,7 @@ nanochat has two patterns:
 For vision, we use **SFT pattern** because:
 - Each sample needs its own image-token alignment
 - Can't pack tokens across images (breaks `<image>` position mapping)
-- Variable image token count (73-900+ per image)
+- Fixed 273 tokens per image in Base mode (variable in Gundam mode later)
 
 ## Core Implementation
 
@@ -234,3 +252,7 @@ row_targets[ids_tensor[:n] == IMAGE_TOKEN_ID] = -1
 # inputs:  [BOS, IMG, IMG, IMG, \n,  O,   C,   R, ...]
 # targets: [-1,  -1,  -1,  -1,  \n,  O,   C,   R, ...]  (IMG positions masked)
 ```
+
+## Future: Gundam Mode
+
+When Base mode works, add dynamic resolution. See DeepSeek-OCR paper Section 3.2.2.

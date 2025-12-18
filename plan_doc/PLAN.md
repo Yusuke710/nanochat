@@ -119,19 +119,20 @@ model.set_image_token_id(tokenizer.convert_tokens_to_ids("<image>"))
 ## File Structure
 
 ```
-nano-deepseek-ocr/
-├── nano_deepseek_ocr.py      # Main VLM model
-├── deepencoder/
-│   ├── sam_vary_sdpa.py      # SAM encoder
-│   ├── clip_sdpa.py          # CLIP encoder
-│   └── load_pretrained.py    # HuggingFace weight loading
-├── image_process.py          # Image → tensor
-├── gpt.py                    # nanochat GPT (+ inputs_embeds)
-├── tokenizer.py              # Add <image> token
-└── scripts/
-    ├── vis_tok_train.py      # Stage 1 training
-    ├── vis_mid_train.py      # Stage 2 training
-    └── vision_sample.py      # Test inference
+nanochat/                     # forked nanochat
+├── nano_deepseek_ocr.py      # Main VLM model (new)
+├── deepencoder/              # Vision encoder (new)
+│   ├── sam_vary_sdpa.py
+│   ├── clip_sdpa.py
+│   └── load_pretrained.py
+├── image_process.py          # Image → tensor (new)
+├── vision_dataloader.py      # Vision data generator (new)
+├── gpt.py                    # nanochat GPT (modify: add inputs_embeds)
+├── scripts/
+│   ├── vis_tok_train.py      # Stage 1 training (new)
+│   ├── vis_mid_train.py      # Stage 2 training (new)
+│   └── vision_sample.py      # Test inference (new)
+└── ...                       # Other nanochat files (dataloader.py, etc.)
 ```
 
 ## Training Stages
@@ -196,14 +197,14 @@ python -m scripts.vision_sample
 python -m scripts.vision_sample --model_step 10000
 ```
 
-Runs inference on 9 fixed test images (one per dataset), shows EXPECTED vs GENERATED.
+Runs inference on 10 fixed test images (one per dataset), shows EXPECTED vs GENERATED.
 
 ### Success Criteria
 
 | Tier | Criteria |
 |------|----------|
-| 1 | Overfit to near-zero loss on tiny dataset |
-| 2 | Smooth training, basic OCR capability |
+| 1 | Overfit to near-zero loss on 10 images (4 receipts, 3 charts, 3 scene-text) in data/. Sanity check with `python -m scripts.vision_sample` to compare generated vs expected output and ensure vision encoder is working. |
+| 2 | Smooth training, OCR capability by training on 300 examples from allenai/olmOCR-mix-1025 |
 | 3 | Competitive scores on Fox/OmniDocBench |
 
 ## Related Docs
