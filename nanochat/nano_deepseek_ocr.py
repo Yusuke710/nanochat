@@ -100,6 +100,13 @@ class NanoDeepseekOCR(nn.Module):
         """Set the image token ID after tokenizer is configured."""
         self.image_token_id = token_id
 
+    @property
+    def config(self):
+        return self.gpt_config
+
+    def get_device(self):
+        return self.gpt.get_device()
+
     def init_weights(self):
         """Initialize GPT weights. Vision encoder weights are loaded separately."""
         self.gpt.init_weights()
@@ -168,6 +175,7 @@ class NanoDeepseekOCR(nn.Module):
         pixel_values: Optional[torch.Tensor] = None,
         vision_embeds: Optional[torch.Tensor] = None,
         loss_reduction: str = 'mean',
+        kv_cache=None,
     ):
         """
         Forward pass for training and inference.
@@ -178,6 +186,7 @@ class NanoDeepseekOCR(nn.Module):
             pixel_values: (B, 3, H, W) normalized image tensors
             vision_embeds: (B, num_vision_tokens, n_embd) pre-computed vision embeddings (for efficient generation)
             loss_reduction: 'mean', 'sum', or 'none'
+            kv_cache: KVCache for efficient autoregressive generation
 
         Returns:
             If targets provided: loss
@@ -208,14 +217,14 @@ class NanoDeepseekOCR(nn.Module):
             text_embeds[image_mask] = flat_vision.to(text_embeds.dtype)
 
         # Forward through GPT with inputs_embeds
-        # We need to modify the GPT forward to accept inputs_embeds
-        return self._forward_gpt_with_embeds(text_embeds, targets, loss_reduction)
+        return self._forward_gpt_with_embeds(text_embeds, targets, loss_reduction, kv_cache)
 
     def _forward_gpt_with_embeds(
         self,
         inputs_embeds: torch.Tensor,
         targets: Optional[torch.Tensor],
         loss_reduction: str = 'mean',
+        kv_cache=None,
     ):
         """
         Forward pass through GPT starting from embeddings instead of token IDs.
@@ -225,15 +234,16 @@ class NanoDeepseekOCR(nn.Module):
         B, T, _ = inputs_embeds.size()
         config = self.gpt.config
 
-        # Grab rotary embeddings
-        assert T <= self.gpt.cos.size(1), f"Sequence too long: {T} > {self.gpt.cos.size(1)}"
-        cos_sin = self.gpt.cos[:, :T], self.gpt.sin[:, :T]
+        # Grab rotary embeddings with offset from KV cache position
+        T0 = 0 if kv_cache is None else kv_cache.get_pos()
+        assert T0 + T <= self.gpt.cos.size(1), f"Sequence too long: {T0 + T} > {self.gpt.cos.size(1)}"
+        cos_sin = self.gpt.cos[:, T0:T0+T], self.gpt.sin[:, T0:T0+T]
 
         # Forward through transformer
         x = inputs_embeds
         x = F.rms_norm(x, (x.size(-1),))  # norm after embedding
         for block in self.gpt.transformer.h:
-            x = block(x, cos_sin, kv_cache=None)
+            x = block(x, cos_sin, kv_cache)
         x = F.rms_norm(x, (x.size(-1),))  # final norm
 
         # Compute logits

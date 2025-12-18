@@ -197,8 +197,8 @@ class Engine:
         self.tokenizer = tokenizer # needed for tool use
 
     @torch.inference_mode()
-    def generate(self, tokens, num_samples=1, max_tokens=None, temperature=1.0, top_k=None, seed=42):
-        """Same as generate, but does single prefill and then clones the KV cache."""
+    def generate(self, tokens, pixel_values=None, num_samples=1, max_tokens=None, temperature=1.0, top_k=None, seed=42):
+        """Prefill + decode generation with KV cache. Supports vision models via pixel_values."""
         assert isinstance(tokens, list) and isinstance(tokens[0], int), "expecting list of ints"
         device = self.model.get_device()
         rng = torch.Generator(device=device)
@@ -222,7 +222,7 @@ class Engine:
             **kv_model_kwargs,
         )
         ids = torch.tensor([tokens], dtype=torch.long, device=device)
-        logits = self.model.forward(ids, kv_cache=kv_cache_prefill)
+        logits = self.model.forward(ids, pixel_values=pixel_values, kv_cache=kv_cache_prefill)
         logits = logits[:, -1, :]
         next_ids = sample_next_token(logits, rng, temperature, top_k)  # (B, 1)
         sampled_tokens = next_ids[:, 0].tolist()
@@ -302,7 +302,7 @@ class Engine:
             # Prepare ids for next iteration
             ids = torch.tensor(token_column, dtype=torch.long, device=device).unsqueeze(1)
 
-    def generate_batch(self, tokens, num_samples=1, **kwargs):
+    def generate_batch(self, tokens, pixel_values=None, num_samples=1, **kwargs):
         """
         Non-streaming batch generation that just returns the final token sequences.
         Returns a list of token sequences (list of lists of ints).
@@ -313,7 +313,7 @@ class Engine:
         results = [tokens.copy() for _ in range(num_samples)]
         masks = [[0] * len(tokens) for _ in range(num_samples)]
         completed = [False] * num_samples
-        for token_column, token_masks in self.generate(tokens, num_samples, **kwargs):
+        for token_column, token_masks in self.generate(tokens, pixel_values=pixel_values, num_samples=num_samples, **kwargs):
             for i, (token, mask) in enumerate(zip(token_column, token_masks)):
                 if not completed[i]:
                     if token == assistant_end or token == bos:
@@ -382,3 +382,90 @@ if __name__ == "__main__":
             print(f"Mismatch at {i}: {reference_ids[i]} != {generated_tokens[i]}")
             break
     print(f"Match: {reference_ids == generated_tokens}")
+
+    # -------------------------------------------------------------------------
+    # Vision model sanity check: compare naive generate vs Engine generate
+    # -------------------------------------------------------------------------
+    print("\n" + "="*60)
+    print("Vision model sanity check")
+    print("="*60)
+
+    from pathlib import Path
+    from PIL import Image
+    from nanochat.gpt import GPTConfig
+    from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
+    from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
+
+    # Check for vision checkpoint and test image
+    vision_ckpts = list(Path("checkpoints").glob("step_*.pt"))
+    test_images = list(Path("data").glob("*.png")) + list(Path("data").glob("*.jpg"))
+
+    if not vision_ckpts:
+        print("No vision checkpoint found, skipping vision test")
+    elif not test_images:
+        print("No test image found in data/, skipping vision test")
+    else:
+        # Load vision model
+        ckpt_path = str(max(vision_ckpts, key=lambda p: int(p.stem.split("_")[1])))
+        print(f"Loading vision model from {ckpt_path}")
+
+        image_token_id = tokenizer.encode_special("<|image|>")
+        gpt_config = GPTConfig(sequence_len=4096, vocab_size=tokenizer.get_vocab_size(),
+                               n_layer=20, n_head=16, n_kv_head=16, n_embd=1280)
+        vision_model = build_nano_deepseek_ocr(gpt_config=gpt_config)
+        vision_model.set_image_token_id(image_token_id)
+        vision_model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
+        vision_model = vision_model.eval().to(device)
+
+        # Load test image
+        test_image = test_images[0]
+        print(f"Using test image: {test_image}")
+        pixel_values = process_image(Image.open(test_image).convert("RGB"), base_size=1024)
+        pixel_values = pixel_values.unsqueeze(0).to(device)
+
+        # Build prompt with expanded image tokens
+        n_img_tokens = count_vision_tokens(base_size=1024)
+        prompt = "Describe the image:"
+        prompt_ids = [image_token_id] + tokenizer.encode(prompt)
+        expanded_ids = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
+
+        kwargs_vision = dict(max_tokens=32, temperature=0.0)
+
+        # Reference: naive model.generate (O(n²))
+        print("\nNaive model.generate():")
+        input_ids = torch.tensor([expanded_ids], dtype=torch.long, device=device)
+        torch.cuda.synchronize()
+        t0 = time.time()
+        with autocast_ctx:
+            output_ids = vision_model.generate(input_ids, pixel_values=pixel_values,
+                                                max_new_tokens=kwargs_vision["max_tokens"],
+                                                temperature=kwargs_vision["temperature"])
+        torch.cuda.synchronize()
+        t1 = time.time()
+        reference_vision = output_ids[0, len(expanded_ids):].tolist()
+        print(tokenizer.decode(reference_vision))
+        print(f"Naive time: {t1 - t0:.2f}s")
+
+        # Engine: fast generate with KV cache (O(n))
+        print("\nEngine.generate():")
+        vision_engine = Engine(vision_model, tokenizer)
+        generated_vision = []
+        torch.cuda.synchronize()
+        t0 = time.time()
+        with autocast_ctx:
+            for token_column, _ in vision_engine.generate(expanded_ids, pixel_values=pixel_values,
+                                                           num_samples=1, **kwargs_vision):
+                generated_vision.append(token_column[0])
+                if token_column[0] == image_token_id:
+                    break
+        torch.cuda.synchronize()
+        t1 = time.time()
+        print(tokenizer.decode(generated_vision))
+        print(f"Engine time: {t1 - t0:.2f}s")
+
+        # Compare
+        match = reference_vision[:len(generated_vision)] == generated_vision
+        print(f"\nVision Match: {match}")
+        if not match:
+            print(f"Reference: {reference_vision[:10]}...")
+            print(f"Engine: {generated_vision[:10]}...")

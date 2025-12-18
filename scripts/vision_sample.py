@@ -18,6 +18,7 @@ from nanochat.gpt import GPTConfig
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
+from nanochat.engine import Engine
 
 GREEN, YELLOW, RED, BOLD, END = '\033[92m', '\033[93m', '\033[91m', '\033[1m', '\033[0m'
 
@@ -64,18 +65,19 @@ def evaluate_sample(model, tokenizer, image_token_id, sample, data_dir, device, 
     with torch.no_grad(), torch.autocast(device, dtype=torch.bfloat16):
         loss = model(input_ids=input_ids, targets=targets, pixel_values=pixel_values).item()
 
-    # Generate
+    # Generate using Engine with KV cache
     generated = ""
     if generate:
-        gen_ids = torch.tensor([expanded], dtype=torch.long, device=device)
-        with torch.no_grad(), torch.autocast(device, dtype=torch.bfloat16):
-            vision_embeds = model.encode_images(pixel_values)
-            for _ in range(512):
-                next_id = model.forward(gen_ids, vision_embeds=vision_embeds)[:, -1, :].argmax(-1, keepdim=True)
-                if next_id.item() == image_token_id:
+        engine = Engine(model, tokenizer)
+        gen_tokens = []
+        with torch.autocast(device, dtype=torch.bfloat16):
+            for token_column, _ in engine.generate(expanded, pixel_values=pixel_values,
+                                                    max_tokens=512, temperature=0.0):
+                token = token_column[0]
+                if token == image_token_id:
                     break
-                gen_ids = torch.cat([gen_ids, next_id], dim=1)
-        generated = tokenizer.decode(gen_ids[0, prompt_len:].tolist()).strip()
+                gen_tokens.append(token)
+        generated = tokenizer.decode(gen_tokens).strip()
 
     return loss, generated
 
