@@ -1,0 +1,115 @@
+{
+  "checkpoint": "tier1_step_500.pt",
+  "timestamp": "2024-12-18",
+  "summary": {
+    "total_samples": 10,
+    "correct": 2,
+    "partial": 1,
+    "wrong": 7,
+    "accuracy": "20%"
+  },
+  "issue_diagnosis": "Model memorized by prompt type, not image content. Vision embeddings not distinguishing between images.",
+  "results": [
+    {
+      "id": "receipt_000",
+      "type": "receipt_ocr",
+      "match": "51%",
+      "status": "partial",
+      "expected_start": "tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD",
+      "generated_start": "tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD",
+      "note": "Correct start but degrades with repeated spaces"
+    },
+    {
+      "id": "receipt_001",
+      "type": "receipt_ocr",
+      "match": "9%",
+      "status": "wrong",
+      "expected_start": "tan woon yann\n\nINDAH GIFT & HOME DECO",
+      "generated_start": "tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD",
+      "note": "Generated receipt_000 content instead"
+    },
+    {
+      "id": "receipt_002",
+      "type": "receipt_ocr",
+      "match": "10%",
+      "status": "wrong",
+      "expected_start": "tan woon yann\n\nMR D.I.Y. (JOHOR) SDN BHD",
+      "generated_start": "tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD",
+      "note": "Generated receipt_000 content instead"
+    },
+    {
+      "id": "receipt_003",
+      "type": "receipt_ocr",
+      "match": "15%",
+      "status": "wrong",
+      "expected_start": "tan woon yann\n\nYONGFATT ENTERPRISE",
+      "generated_start": "tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD",
+      "note": "Generated receipt_000 content instead"
+    },
+    {
+      "id": "chart_01",
+      "type": "chart_qa",
+      "match": "18%",
+      "status": "wrong",
+      "expected_start": "Title: Projected share of the population in extreme poverty",
+      "generated_start": "Title: Death rates from substance use disorders, 1995",
+      "note": "Generated chart_02 content instead"
+    },
+    {
+      "id": "chart_02",
+      "type": "chart_qa",
+      "match": "100%",
+      "status": "correct",
+      "expected_start": "Title: Death rates from substance use disorders, 1995",
+      "generated_start": "Title: Death rates from substance use disorders, 1995",
+      "note": "Perfect match"
+    },
+    {
+      "id": "chart_03",
+      "type": "chart_qa",
+      "match": "26%",
+      "status": "wrong",
+      "expected_start": "Title: Share of cumulative plastic exports",
+      "generated_start": "Title: Death rates from substance use disorders, 1995",
+      "note": "Generated chart_02 content instead"
+    },
+    {
+      "id": "textvqa_01",
+      "type": "scene_text_vqa",
+      "match": "100%",
+      "status": "correct",
+      "expected_start": "This image shows a Dakota Digital single-use camera",
+      "generated_start": "This image shows a Dakota Digital single-use camera",
+      "note": "Perfect match"
+    },
+    {
+      "id": "textvqa_02",
+      "type": "scene_text_vqa",
+      "match": "28%",
+      "status": "wrong",
+      "expected_start": "This image shows a large banner advertisement",
+      "generated_start": "This image shows a Dakota Digital single-use camera",
+      "note": "Generated textvqa_01 content instead"
+    },
+    {
+      "id": "textvqa_03",
+      "type": "scene_text_vqa",
+      "match": "29%",
+      "status": "wrong",
+      "expected_start": "This image shows a close-up of a Stone Brewing beer bottle",
+      "generated_start": "This image shows a Dakota Digital single-use camera",
+      "note": "Generated textvqa_01 content instead"
+    }
+  ],
+  "root_causes": [
+    "1. Model memorized based on prompt structure, not image features",
+    "2. Vision embeddings may not be properly differentiated between images",
+    "3. Training may have collapsed to outputting most common answer per prompt type",
+    "4. Possible issue: vision encoder features not varying enough between similar images"
+  ],
+  "inference_performance": {
+    "issue": "No KV caching - each token generation re-encodes full image and recomputes all attention",
+    "time_per_sample": "~60 seconds",
+    "total_time": "~10 minutes for 10 samples"
+  }
+}
