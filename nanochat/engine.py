@@ -224,6 +224,10 @@ class Engine:
         ids = torch.tensor([tokens], dtype=torch.long, device=device)
         logits = self.model.forward(ids, pixel_values=pixel_values, kv_cache=kv_cache_prefill)
         logits = logits[:, -1, :]
+        # Never generate image tokens (they're input-only placeholders)
+        image_token_id = getattr(self.model, 'image_token_id', None)
+        if image_token_id is not None:
+            logits[:, image_token_id] = float('-inf')
         next_ids = sample_next_token(logits, rng, temperature, top_k)  # (B, 1)
         sampled_tokens = next_ids[:, 0].tolist()
 
@@ -261,6 +265,9 @@ class Engine:
                 # Forward the model and get the next token for each row
                 logits = self.model.forward(ids, kv_cache=kv_cache_decode)  # (B, T, vocab_size)
                 logits = logits[:, -1, :]  # (B, vocab_size) at last time step
+                # Never generate image tokens
+                if image_token_id is not None:
+                    logits[:, image_token_id] = float('-inf')
                 next_ids = sample_next_token(logits, rng, temperature, top_k)  # (B, 1)
                 sampled_tokens = next_ids[:, 0].tolist()
 

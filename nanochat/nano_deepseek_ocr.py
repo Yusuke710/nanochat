@@ -299,6 +299,10 @@ class NanoDeepseekOCR(nn.Module):
             logits = self.forward(input_ids, vision_embeds=vision_embeds)
             logits = logits[:, -1, :]  # (1, vocab_size)
 
+            # Never generate image tokens (they're input-only placeholders)
+            if self.image_token_id is not None:
+                logits[:, self.image_token_id] = float('-inf')
+
             # Apply temperature and top-k
             if top_k is not None:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
