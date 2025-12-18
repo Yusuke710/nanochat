@@ -5,10 +5,12 @@
 **Reason**: CUDA 12.8 binaries require libraries not present in CUDA 12.2 driver environment
 **Impact**: Need to manually handle GQA expansion instead of using `enable_gqa` parameter
 
-## Image Token Handling
-**Decision**: Use vocab_id 65535 (last token) as image placeholder
-**Reason**: RustBPETokenizer doesn't support adding special tokens after initialization
-**Alternative considered**: Modify tokenizer training - rejected as too complex for tier-1
+## Image Token Handling (SUPERSEDED)
+**Original Decision**: Use vocab_id 65535 (last token) as image placeholder
+**Updated Decision**: Use `<|image|>` special token (vocab_id 65536)
+**Reason**: Proper special token handling is cleaner and more maintainable
+**Implementation**: Extended RustBPETokenizer.from_directory() to add new special tokens at runtime
+**See also**: "Unified Tokenizer" section below
 
 ## GQA Compatibility Fix
 **Decision**: Manually expand k,v tensors with `repeat_interleave` for GQA
@@ -67,16 +69,58 @@
 **Result**: 2.5x faster inference (10+ min → 4 min for 10 samples)
 
 ## Stage 2 Training Setup (vis_mid_train.py)
-**Decision**: Freeze SAM encoder and projector, train CLIP + GPT
+**Decision**: Freeze SAM encoder only (not projector), train CLIP + projector + GPT
+**Reason**: Per PLAN.md - Stage 2 freezes "SAM + Conv" (the conv is part of SAM)
+
 **Frozen**:
-- SAM encoder (sam_model): 95.5M params
-- Projector (linear 2048→1280): 2.6M params
-- Total frozen: 98M params
+- SAM encoder (sam_model): ~95M params
 
 **Trainable**:
-- CLIP encoder (vision_model): 303M params
-- GPT (language model): 560M params
-- Special tokens (image_newline, view_separator): 2.5K params
-- Total trainable: 864M params (89.8%)
+- CLIP encoder (vision_model): ~303M params
+- Projector: ~2.6M params
+- GPT (language model): ~560M params
+- Special tokens: ~2.5K params
+- Total trainable: ~866M params
 
-**Result**: Stage 2 verified working - converges quickly when starting from Stage 1 checkpoint
+**Differences from Stage 1**:
+- SAM frozen (Stage 1 trains everything)
+- lr = 3e-5 (Stage 1 uses 5e-5)
+- StepLR decay every 2000 steps (Stage 1 uses constant LR after warmup)
+- seq_len = 8192 (Stage 1 uses 4096)
+
+## Text Data Mixing (Stage 2)
+**Decision**: Skip text data mixing for tier-1/tier-2 testing
+**Reason**:
+- Text mixing (90% vision + 10% text) is for preventing catastrophic forgetting during full-scale training
+- For tier-1/tier-2 overfitting tests, vision-only data is sufficient
+- The unified tokenizer with `<|image|>` can handle both vision and text data
+- When pixel_values=None, model skips vision encoder and processes as pure text
+
+**Future**: Add text mixing when scaling to tier-3 with larger datasets
+
+## Unified Tokenizer
+**Decision**: Use single tokenizer with `<|image|>` special token for both vision and text
+**Implementation**:
+- Added `<|image|>` to SPECIAL_TOKENS in tokenizer.py
+- Extended vocab from 65536 → 65537 at runtime
+- Embedding layers expanded after loading pretrained weights
+**Benefit**: Same tokenizer handles vision prompts (with `<|image|>`) and pure text (without)
+
+## Karpathy-Style Code Refactoring
+**Decision**: Refactor all vision training code to match Karpathy's nanochat patterns
+**Reason**: Consistency, readability, and maintainability
+
+**Patterns adopted**:
+- Config variables at top of file, overridable via configurator.py
+- Generator functions instead of Dataset/DataLoader classes
+- `split` parameter for train/val distinction
+- `build_val_loader = lambda: ...` pattern for fresh val loaders
+- EMA-smoothed loss logging
+- Inline, flat code instead of class abstractions
+
+**Files refactored**:
+- `image_process.py`: 170 → 66 lines (removed classes)
+- `vision_dataloader.py`: Rewritten with `split` parameter
+- `vis_tok_train.py`: Config-at-top pattern
+- `vis_mid_train.py`: Matching Stage 2 script
+- `vision_sample.py`: 411 → 148 lines (reuse modules)

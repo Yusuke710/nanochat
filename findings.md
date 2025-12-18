@@ -155,3 +155,90 @@ The model learned to minimize loss by:
 | textvqa_03 | 100% | ✓ |
 
 **Key insight**: SAM encoder DOES learn image-specific features with sufficient training. The earlier collapse at 500 steps was due to insufficient training, not architectural issues. With batch_size=10 and 300 steps (3000 sample iterations), the model perfectly overfits to all 10 images while maintaining distinct vision embeddings.
+
+## Code Refactoring to Karpathy Style
+
+### Goals Achieved
+- Simplified `image_process.py` from 170 → 66 lines
+- Simplified `vision_sample.py` from 411 → 148 lines
+- Rewrote `vision_dataloader.py` to Karpathy style with `split` parameter
+- Rewrote `vis_tok_train.py` (Stage 1) with config-at-top pattern
+- Created `vis_mid_train.py` (Stage 2) matching Karpathy style
+
+### Pattern Changes
+| Before | After (Karpathy style) |
+|--------|------------------------|
+| `ImageProcessor` class | `process_image()` function |
+| `ImageTransform` class | Inline transforms |
+| argparse CLI | Config variables + configurator.py |
+| Dataset/DataLoader classes | Generator functions |
+| Separate train/val loaders | `split` parameter + `build_val_loader` lambda |
+
+### Tokenizer Extension
+- Added `<|image|>` to SPECIAL_TOKENS list in tokenizer.py
+- Vocab size: 65536 → 65537 (dynamic extension at runtime)
+- `from_directory()` now extends existing tokenizer with new special tokens
+- Embeddings expanded after loading pretrained weights
+
+## Training Scripts
+
+### Stage 1 (`vis_tok_train.py`)
+- All parameters trainable (SAM, CLIP, projector, GPT)
+- lr = 5e-5, constant after warmup
+- seq_len = 4096
+- Vision data only
+
+### Stage 2 (`vis_mid_train.py`)
+- SAM frozen (~95M params)
+- Trainable: CLIP, projector, GPT (~866M params)
+- lr = 3e-5, StepLR decay (0.1x every 2000 steps)
+- seq_len = 8192
+- Text mixing disabled for tier-1/tier-2 (vision only)
+
+### Training Verification (Stage 1, 150 steps)
+```
+step 00050 | val loss: 0.3225
+step 00100 | val loss: 0.0216
+step 00150 | val loss: 0.0018
+Final loss: 0.0018
+SUCCESS: Training converged!
+```
+
+### Inference Verification (`vision_sample.py`)
+```
+ID              Loss    Overlap
+========================================
+receipt_000   0.0017    100%  ✓
+receipt_001   0.0007    100%  ✓
+receipt_002   0.0010    100%  ✓
+receipt_003   0.0010    100%  ✓
+chart_01      0.0008    100%  ✓
+chart_02      0.0015    100%  ✓
+chart_03      0.0016    100%  ✓
+textvqa_01    0.0015    100%  ✓
+textvqa_02    0.0011    100%  ✓
+textvqa_03    0.0009     99%  ✓
+========================================
+Avg loss: 0.0012
+Avg overlap: 99.9%
+```
+
+## File Structure (Current)
+
+```
+nanochat/
+├── nanochat/
+│   ├── image_process.py       # 66 lines - process_image, count_vision_tokens, expand_image_tokens
+│   ├── vision_dataloader.py   # 97 lines - Karpathy-style vision data loader
+│   ├── tokenizer.py           # Extended with <|image|> special token
+│   ├── nano_deepseek_ocr.py   # Main VLM model
+│   └── deepencoder/           # Vision encoder (SAM + CLIP)
+├── scripts/
+│   ├── vis_tok_train.py       # Stage 1 training (all params trainable)
+│   ├── vis_mid_train.py       # Stage 2 training (SAM frozen)
+│   └── vision_sample.py       # Inference evaluation
+├── data/
+│   ├── overfit_dataset.json   # 10 samples for tier-1
+│   └── images/                # Image files
+└── checkpoints/               # Model checkpoints
+```
