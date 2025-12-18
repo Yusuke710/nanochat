@@ -142,16 +142,16 @@ nanochat/                     # forked nanochat
 | 1 | `vis_tok_train.py` | SAM, CLIP, Projector, GPT | Nothing | Vision only | 4096 |
 | 2 | `vis_mid_train.py` | CLIP, Projector, GPT | SAM + Conv | 90% vision + 10% text | 8192 |
 
-### Optimizer Setup
+### Optimizer Setup (per DeepSeek-OCR paper)
 
 ```python
-# Matrix params (Muon)
-matrix_params = [*clip.parameters(), *projector.parameters(), *gpt.transformer.h.parameters()]
-muon_optim = Muon(matrix_params, lr=0.02, momentum=0.95)
+# Stage 1: AdamW with cosine annealing
+optimizer = AdamW(model.parameters(), lr=5e-5)
+scheduler = CosineAnnealingLR(optimizer, T_max=total_steps)
 
-# Embedding params (AdamW)
-embedding_params = [image_newline, view_separator, *gpt.transformer.wte.parameters(), gpt.lm_head.weight]
-adam_optim = AdamW(embedding_params, lr=5e-5, betas=(0.9, 0.95), weight_decay=0.1)
+# Stage 2: AdamW with step-based scheduler
+optimizer = AdamW(model.parameters(), lr=3e-5)
+scheduler = StepLR(optimizer, step_size=decay_steps, gamma=0.1)
 ```
 
 ### Stage Setup
