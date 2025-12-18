@@ -125,3 +125,43 @@
 - `vis_tok_train.py`: Config-at-top pattern
 - `vis_mid_train.py`: Matching Stage 2 script
 - `vision_sample.py`: 411 → 148 lines (reuse modules)
+
+---
+
+# Tier-2 Decisions (WIP - 2024-12-18)
+
+**Status**: Work in progress, committing before leaving work.
+
+## Type-Specific Prompts for olmOCR Data
+**Decision**: Use different prompts based on content type
+**Reason**: DeepSeek-OCR paper uses different prompts for documents, tables, and diagrams
+**Implementation**:
+- Tables: `"<image>\nConvert this table to HTML."`
+- Diagrams: `"<image>\nDescribe this diagram."`
+- Documents: `"<image>\nOCR this document."`
+
+**Source**: https://arxiv.org/abs/2510.18234
+
+## Batch Size for Tier-2 (A100 80GB)
+**Decision**: Use batch_size=4 with seq_len=4096
+**Reason**: Variable-length sequences cause OOM with larger batch sizes
+**Testing**:
+- batch_size=10: OOM
+- batch_size=8: OOM after few steps
+- batch_size=6: OOM after ~16 steps
+- batch_size=4: Stable
+
+## Training Run 2 Results (Overfitting)
+**Observation**: 2000 steps caused severe overfitting
+- Train loss: 6.4 → 0.44
+- Val loss: 4.07 → 8.15 (min: 3.94 at step 200)
+- Model outputs HTML table format for ALL inputs
+
+**Next steps** (TODO):
+- Retrain with type-specific prompts
+- Use early stopping (~step 200)
+- Consider data augmentation or more samples
+
+## New Scripts Added
+- `scripts/eval_to_html.py`: Generate HTML report with images, expected, and generated outputs
+- `scripts/prepare_olmocr.py`: Updated with type-specific prompts
