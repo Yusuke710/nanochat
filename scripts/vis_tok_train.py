@@ -10,6 +10,7 @@ Distributed:
     torchrun --nproc_per_node=8 -m scripts.vis_tok_train
 """
 
+import math
 import os
 import time
 from contextlib import nullcontext
@@ -129,9 +130,12 @@ if resume_step >= 0:
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
 def get_lr(step):
+    """Warmup then cosine annealing to 0."""
     if step < warmup_steps:
         return lr * (step + 1) / warmup_steps
-    return lr  # constant after warmup
+    # Cosine annealing after warmup
+    progress = (step - warmup_steps) / max(1, steps - warmup_steps)
+    return lr * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (Karpathy style: train loader + val loader builder)

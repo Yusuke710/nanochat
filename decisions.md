@@ -23,8 +23,9 @@
 **Note**: net_2 and net_3 compression layers in SAM are randomly initialized (not in HF model)
 
 ## Training Configuration
-**Decision**: Use AdamW with lr=1e-4, cosine annealing schedule
-**Reason**: DeepSeek-OCR paper recommends AdamW for vision-language alignment
+**Decision**: Use AdamW with lr=5e-5, cosine annealing schedule (Stage 1)
+**Reason**: DeepSeek-OCR paper recommends AdamW with cosine annealing for Stage 1
+**Implementation**: `get_lr()` in vis_tok_train.py uses warmup + cosine decay to 0
 **Result**: Achieved near-zero loss (0.007) in 1000 steps
 
 ## Model Config (n_kv_head)

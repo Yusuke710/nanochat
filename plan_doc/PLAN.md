@@ -41,98 +41,24 @@ Vision Embeddings → Replace <image> positions → nanochat GPT (~570M)
 3. **One unified path** - same `tokenize_sample()` for vision and text
 4. **Minimal abstractions** - clear data flow, no hidden magic
 
-## Model Forward
-
-```python
-class NanoDeepseekOCR(nn.Module):
-    def forward(self, input_ids, targets=None, pixel_values=None, ...):
-        # 1. Get text embeddings
-        text_embeds = self.gpt.transformer.wte(input_ids)
-
-        # 2. If images, encode and replace <image> positions
-        if pixel_values is not None:
-            vision_embeds = self.vision_encoder(pixel_values, ...)
-            image_mask = (input_ids == self.image_token_id)
-            text_embeds[image_mask] = vision_embeds.flatten(0, 1)
-
-        # 3. Forward through GPT
-        return self.gpt(inputs_embeds=text_embeds, targets=targets)
-```
-
-## Tokenization
-
-One function handles both vision and text:
-
-```python
-def tokenize_sample(text, images=None):
-    ids = tokenizer.encode(text, prepend="<|bos|>")
-
-    if images is None:
-        return ids, None
-
-    pixel_values = []
-    for img in images:
-        pixel_values.append(processor.process_image(img))
-        n_tokens = processor.count_tokens(img)
-        ids = expand_image_token(ids, n_tokens)
-
-    return ids, torch.stack(pixel_values)
-
-
-def expand_image_token(ids, n_tokens):
-    """Expand single <image> token to N copies."""
-    result = []
-    for tok in ids:
-        if tok == IMAGE_TOKEN_ID:
-            result.extend([IMAGE_TOKEN_ID] * n_tokens)
-        else:
-            result.append(tok)
-    return result
-```
-
-Token count depends on resolution (73-900+ tokens). Expansion happens at data loading time.
-
-## GPT Modification
-
-Add `inputs_embeds` parameter to nanochat's `gpt.py`:
-
-```python
-def forward(self, idx=None, inputs_embeds=None, targets=None, ...):
-    if inputs_embeds is not None:
-        x = inputs_embeds
-    else:
-        x = self.transformer.wte(idx)
-    # ... rest unchanged
-```
-
-## Loading nanochat from HuggingFace
-
-```python
-tokenizer = AutoTokenizer.from_pretrained("nanochat-students/base-d20")
-tokenizer.add_special_tokens({"additional_special_tokens": ["<image>"]})
-
-model = build_nano_deepseek_ocr(gpt_checkpoint="nanochat-students/base-d20")
-resize_embeddings(model, len(tokenizer))
-model.set_image_token_id(tokenizer.convert_tokens_to_ids("<image>"))
-```
-
 ## File Structure
 
 ```
-nanochat/                     # forked nanochat
-├── nano_deepseek_ocr.py      # Main VLM model (new)
-├── deepencoder/              # Vision encoder (new)
+nanochat/
+├── nano_deepseek_ocr.py      # Main VLM model
+├── deepencoder/              # Vision encoder
 │   ├── sam_vary_sdpa.py
 │   ├── clip_sdpa.py
 │   └── load_pretrained.py
-├── image_process.py          # Image → tensor (new)
-├── vision_dataloader.py      # Vision data generator (new)
-├── gpt.py                    # nanochat GPT (modify: add inputs_embeds)
+├── image_process.py          # Image → tensor
+├── vision_dataloader.py      # Vision data generator
+├── tokenizer.py              # Extended with <|image|> token
+├── gpt.py                    # nanochat GPT
 ├── scripts/
-│   ├── vis_tok_train.py      # Stage 1 training (new)
-│   ├── vis_mid_train.py      # Stage 2 training (new)
-│   └── vision_sample.py      # Test inference (new)
-└── ...                       # Other nanochat files (dataloader.py, etc.)
+│   ├── vis_tok_train.py      # Stage 1 training
+│   ├── vis_mid_train.py      # Stage 2 training
+│   └── vision_sample.py      # Test inference
+└── ...
 ```
 
 ## Training Stages
@@ -142,29 +68,9 @@ nanochat/                     # forked nanochat
 | 1 | `vis_tok_train.py` | SAM, CLIP, Projector, GPT | Nothing | Vision only | 4096 |
 | 2 | `vis_mid_train.py` | CLIP, Projector, GPT | SAM + Conv | 90% vision + 10% text | 8192 |
 
-### Optimizer Setup (per DeepSeek-OCR paper)
-
-```python
-# Stage 1: AdamW with cosine annealing
-optimizer = AdamW(model.parameters(), lr=5e-5)
-scheduler = CosineAnnealingLR(optimizer, T_max=total_steps)
-
-# Stage 2: AdamW with step-based scheduler
-optimizer = AdamW(model.parameters(), lr=3e-5)
-scheduler = StepLR(optimizer, step_size=decay_steps, gamma=0.1)
-```
-
-### Stage Setup
-
-```python
-def setup_stage1(model):
-    for p in model.parameters():
-        p.requires_grad = True
-
-def setup_stage2(model):
-    for p in model.vision_encoder.sam.parameters():
-        p.requires_grad = False
-```
+**Optimizer (per DeepSeek-OCR paper):**
+- Stage 1: AdamW lr=5e-5, cosine annealing
+- Stage 2: AdamW lr=3e-5, StepLR decay (0.1x every 2000 steps)
 
 ## Multi-Resolution Modes
 
@@ -172,21 +78,13 @@ def setup_stage2(model):
 |------|-----------|--------|
 | Tiny | 512 | 73 |
 | Small | 640 | 111 |
-| Base | 1024 | 273 |
+| **Base** | **1024** | **273** |
 | Large | 1280 | 421 |
 | Gundam | 1024+crops | 273+ |
 
 Token formula: `(num_queries + 1) × num_queries + 1` where `num_queries = resolution / patch_size / downsample_ratio`
 
-## Implementation Order
-
-1. Add `<image>` token to tokenizer
-2. Add `inputs_embeds` to `gpt.py`
-3. Create `nano_deepseek_ocr.py` with simple forward()
-4. Create `image_process.py` for image → tensor
-5. Create `load_pretrained.py` for HuggingFace weights
-6. Create training scripts
-7. Test on small data
+**Current:** Base mode only. Gundam mode deferred to post-Tier-2.
 
 ## Evaluation
 
@@ -194,21 +92,19 @@ Token formula: `(num_queries + 1) × num_queries + 1` where `num_queries = resol
 
 ```bash
 python -m scripts.vision_sample
-python -m scripts.vision_sample --model_step 10000
+python -m scripts.vision_sample --resume_step=150
 ```
-
-Runs inference on 10 fixed test images (one per dataset), shows EXPECTED vs GENERATED.
 
 ### Success Criteria
 
-| Tier | Criteria |
-|------|----------|
-| 1 | Overfit to near-zero loss on 10 images (4 receipts, 3 charts, 3 scene-text) in data/. Sanity check with `python -m scripts.vision_sample` to compare generated vs expected output and ensure vision encoder is working. |
-| 2 | Smooth training, OCR capability by training on 300 examples from allenai/olmOCR-mix-1025 |
-| 3 | Competitive scores on Fox/OmniDocBench |
+| Tier | Criteria | Status |
+|------|----------|--------|
+| 1 | Overfit to near-zero loss on 10 images. 100% accuracy on `vision_sample.py`. | ✅ Complete |
+| 2 | Smooth training on 300 examples from allenai/olmOCR-mix-1025 | Pending |
+| 3 | Competitive scores on Fox/OmniDocBench | Pending |
 
 ## Related Docs
 
-- [dataloader.md](dataloader.md) - Vision dataloader implementation
+- [dataloader.md](dataloader.md) - Vision dataloader design
 - [data_plan.md](data_plan.md) - Dataset details and Task class templates
 - [DeepEncoder_loading_plan.md](DeepEncoder_loading_plan.md) - HuggingFace weight mappings
