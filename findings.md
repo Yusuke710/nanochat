@@ -359,3 +359,38 @@ Key points:
 - Sampler handles data sharding across GPUs
 - When sampler is used, DataLoader's `shuffle` must be False
 - Each GPU sees 1/N of the data (no duplicates)
+
+## Vision Model Generation Fix
+
+### Problem
+When generating with vision models, the model would crash with shape mismatch:
+```
+RuntimeError: shape mismatch: value tensor of shape [273, 1280] cannot be broadcast to indexing result of shape [274, 1280]
+```
+
+### Root Cause
+1. Image tokens (`<|image|>`) are placeholders that get replaced with vision embeddings
+2. During generation, the model could output an image token
+3. On the next forward pass, the code tries to scatter vision embeddings to ALL image tokens
+4. But vision_embeds only has 273 positions, while input now has 274 image tokens
+
+### Fix
+Mask image token from output logits - image tokens should never be generated:
+```python
+# In model.generate() and Engine.generate():
+if self.image_token_id is not None:
+    logits[:, self.image_token_id] = float('-inf')
+```
+
+### Karpathy Principle
+This is the simplest fix - one line per location, no new parameters. Image tokens are inherently input-only (they're placeholders for vision embeddings), so masking them from output is semantically correct.
+
+### Test Results
+```
+Vision Engine Sanity Check
+===========================
+Naive model.generate(): 1.17s
+Engine.generate() (KV cache): 0.82s
+Match: True
+Speedup: 1.4x
+```

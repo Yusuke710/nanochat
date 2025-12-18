@@ -179,6 +179,72 @@ Avg overlap: 99.x%
 
 ---
 
+## Engine Test (KV Cache)
+
+Test that naive generation matches KV-cached Engine generation:
+
+```bash
+uv run python << 'EOF'
+import time, torch
+from pathlib import Path
+from contextlib import nullcontext
+from PIL import Image
+from nanochat.common import compute_init, autodetect_device_type
+from nanochat.tokenizer import RustBPETokenizer
+from nanochat.gpt import GPTConfig
+from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
+from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
+from nanochat.engine import Engine
+
+ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init()
+autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+
+tokenizer = RustBPETokenizer.from_directory("tokenizer")
+image_token_id = tokenizer.encode_special("<|image|>")
+
+ckpt_path = str(max(Path("checkpoints").glob("step_*.pt"), key=lambda p: int(p.stem.split("_")[1])))
+print(f"Loading {ckpt_path}")
+
+gpt_config = GPTConfig(sequence_len=4096, vocab_size=tokenizer.get_vocab_size(),
+                       n_layer=20, n_head=16, n_kv_head=16, n_embd=1280)
+model = build_nano_deepseek_ocr(gpt_config=gpt_config)
+model.set_image_token_id(image_token_id)
+model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
+model = model.eval().to(device)
+
+pixel_values = process_image(Image.open("data/images/chart_01.png").convert("RGB"), base_size=1024)
+pixel_values = pixel_values.unsqueeze(0).to(device)
+
+n_img_tokens = count_vision_tokens(base_size=1024)
+prompt_ids = [image_token_id] + tokenizer.encode("Describe:")
+expanded_ids = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
+
+# Naive
+input_ids = torch.tensor([expanded_ids], dtype=torch.long, device=device)
+t0 = time.time()
+with autocast_ctx:
+    output = model.generate(input_ids, pixel_values=pixel_values, max_new_tokens=32, temperature=0.0)
+naive_tokens = output[0, len(expanded_ids):].tolist()
+naive_time = time.time() - t0
+
+# Engine
+engine = Engine(model, tokenizer)
+engine_tokens = []
+t0 = time.time()
+with autocast_ctx:
+    for tok, _ in engine.generate(expanded_ids, pixel_values=pixel_values, num_samples=1, max_tokens=32, temperature=0.0):
+        engine_tokens.append(tok[0])
+engine_time = time.time() - t0
+
+print(f"Naive: {tokenizer.decode(naive_tokens)[:50]}... ({naive_time:.2f}s)")
+print(f"Engine: {tokenizer.decode(engine_tokens)[:50]}... ({engine_time:.2f}s)")
+print(f"Match: {naive_tokens[:len(engine_tokens)] == engine_tokens}")
+print(f"Speedup: {naive_time/engine_time:.1f}x")
+EOF
+```
+
+---
+
 ## Quick Test Commands
 
 ### Verify environment
