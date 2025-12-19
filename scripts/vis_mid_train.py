@@ -22,7 +22,6 @@ Stage 2 differences from Stage 1:
 
 import os
 import time
-import random
 from contextlib import nullcontext
 
 import torch
@@ -31,17 +30,18 @@ import torch.distributed as dist
 from nanochat.gpt import GPTConfig
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
 from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
-from nanochat.vision_dataloader import create_vision_loader
-from nanochat.dataloader import tokenizing_distributed_data_loader
+from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
+from tasks.overfit_samples import OverfitSamples
+from tasks.smoltalk import SmolTalk
+from tasks.common import TaskMixture
 
 # -----------------------------------------------------------------------------
 # User settings (overridable via CLI)
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Data
 data_dir = "data"  # directory containing train.json, val.json, images/
-text_ratio = 0.1  # fraction of steps using text-only data (0.0 = vision only)
 # Model
 base_size = 1024  # image resolution
 seq_len = 8192  # longer sequences for stage 2
@@ -163,10 +163,10 @@ if resume_step >= 0:
 # -----------------------------------------------------------------------------
 # Wrap with DDP for multi-GPU training
 if ddp:
-    # When text_ratio > 0, vision encoder params don't get gradients on text-only steps
+    # Stage 2 mixes vision + text, so vision encoder may not get gradients on text-only steps
     model = torch.nn.parallel.DistributedDataParallel(
         model, device_ids=[ddp_local_rank],
-        find_unused_parameters=(text_ratio > 0)
+        find_unused_parameters=True
     )
 raw_model = model.module if ddp else model  # unwrapped model for saving/attributes
 
@@ -197,22 +197,30 @@ def get_lr(step):
     return lr * (lr_decay_gamma ** n_decays)
 
 # -----------------------------------------------------------------------------
-# Setup dataloaders
-print0(f"Loading vision data from {data_dir}/")
-vision_loader = create_vision_loader(batch_size, seq_len, data_dir, tokenizer, "train", base_size)
-val_loader_fn = lambda: create_vision_loader(batch_size, seq_len, data_dir, tokenizer, "val", base_size)
+# Task Mixture (define your tasks here - task-agnostic design)
+# Modify this section to change what data is used for training
+# NOTE: Currently all samples in a batch must have images (or all must be text-only)
+#       Mixed batches are not supported yet due to pixel_values padding issues
+train_ds = TaskMixture([
+    OverfitSamples(data_dir=data_dir, split="train"),  # 10 vision samples
+    # SmolTalk(split="train", stop=10),  # TODO: fix mixed batch handling
+])
+val_ds = TaskMixture([
+    OverfitSamples(data_dir=data_dir, split="val"),  # 10 vision samples
+])
 
-# Text data loader (FineWeb parquet files in ~/.cache/nanochat/base_data/)
-text_loader = None
-if text_ratio > 0:
-    print0(f"Loading text data (text_ratio={text_ratio})")
-    text_loader = tokenizing_distributed_data_loader(
-        B=batch_size, T=seq_len, split="train", device=device,
-    )
+# -----------------------------------------------------------------------------
+# Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
+print0(f"Loading data from {data_dir}/")
+print0(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
+
+train_loader = create_multimodal_loader(train_ds, tokenizer, batch_size, seq_len, base_size)
+val_loader_fn = lambda: create_multimodal_loader(val_ds, tokenizer, batch_size, seq_len, base_size)
 
 # Verify first batch
-inputs, targets, pixel_values = next(iter(vision_loader))
-print0(f"Batch shapes: inputs={inputs.shape}, targets={targets.shape}, pixel_values={pixel_values.shape}")
+inputs, targets, media = next(iter(train_loader))
+pixel_values = media["pixel_values"]
+print0(f"Batch shapes: inputs={inputs.shape}, targets={targets.shape}, pixel_values={pixel_values.shape if pixel_values is not None else None}")
 
 # -----------------------------------------------------------------------------
 # Loop state
@@ -224,7 +232,7 @@ total_training_time = 0.0
 # Training loop
 print0(f"\nStarting Stage 2 training for {steps} steps...")
 model.train()
-vision_iter = iter(vision_loader)
+train_iter = iter(train_loader)
 
 for step in range(start_step, steps):
     last_step = (step == steps - 1)
@@ -236,12 +244,14 @@ for step in range(start_step, steps):
         val_loader = val_loader_fn()
         val_loss_sum = 0.0
         with torch.no_grad():
-            for i, (val_inputs, val_targets, val_pv) in enumerate(val_loader):
+            for i, (val_inputs, val_targets, val_media) in enumerate(val_loader):
                 if i >= eval_steps:
                     break
                 val_inputs = val_inputs.to(device, non_blocking=True)
                 val_targets = val_targets.to(device, non_blocking=True)
-                val_pv = val_pv.to(device, non_blocking=True)
+                val_pv = val_media["pixel_values"]
+                if val_pv is not None:
+                    val_pv = val_pv.to(device, non_blocking=True)
                 with autocast_ctx:
                     val_loss = model(input_ids=val_inputs, targets=val_targets, pixel_values=val_pv)
                 val_loss_sum += val_loss.item()
@@ -258,17 +268,15 @@ for step in range(start_step, steps):
 
     # -------------------------------------------------------------------------
     # Get next batch
-    if text_loader is not None and random.random() < text_ratio:
-        inputs, targets = next(text_loader)
-        pixel_values = None
-    else:
-        try:
-            inputs, targets, pixel_values = next(vision_iter)
-        except StopIteration:
-            vision_iter = iter(vision_loader)
-            inputs, targets, pixel_values = next(vision_iter)
-        inputs = inputs.to(device, non_blocking=True)
-        targets = targets.to(device, non_blocking=True)
+    try:
+        inputs, targets, media = next(train_iter)
+    except StopIteration:
+        train_iter = iter(train_loader)
+        inputs, targets, media = next(train_iter)
+    inputs = inputs.to(device, non_blocking=True)
+    targets = targets.to(device, non_blocking=True)
+    pixel_values = media["pixel_values"]
+    if pixel_values is not None:
         pixel_values = pixel_values.to(device, non_blocking=True)
 
     # -------------------------------------------------------------------------

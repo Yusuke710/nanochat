@@ -25,8 +25,10 @@ from nanochat.deepencoder.load_pretrained import (
     load_clip_weights_from_hf,
     load_nanochat_gpt_from_hf,
 )
-from nanochat.vision_dataloader import create_vision_loader
+from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
+from tasks.overfit_samples import OverfitSamples
+from tasks.common import TaskMixture
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
 
 # -----------------------------------------------------------------------------
@@ -164,13 +166,18 @@ def get_lr(step):
     return lr * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 # -----------------------------------------------------------------------------
-# Setup dataloaders
+# Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
 print0(f"Loading data from {data_dir}/")
-train_loader = create_vision_loader(batch_size, seq_len, data_dir, tokenizer, "train", base_size)
-val_loader_fn = lambda: create_vision_loader(batch_size, seq_len, data_dir, tokenizer, "val", base_size)
+train_ds = TaskMixture([OverfitSamples(data_dir=data_dir, split="train")])
+val_ds = TaskMixture([OverfitSamples(data_dir=data_dir, split="val")])
+print0(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
+
+train_loader = create_multimodal_loader(train_ds, tokenizer, batch_size, seq_len, base_size)
+val_loader_fn = lambda: create_multimodal_loader(val_ds, tokenizer, batch_size, seq_len, base_size)
 
 # Verify first batch
-inputs, targets, pixel_values = next(iter(train_loader))
+inputs, targets, media = next(iter(train_loader))
+pixel_values = media["pixel_values"]
 print0(f"Batch shapes: inputs={inputs.shape}, targets={targets.shape}, pixel_values={pixel_values.shape}")
 
 # -----------------------------------------------------------------------------
@@ -195,12 +202,14 @@ for step in range(start_step, steps):
         val_loader = val_loader_fn()
         val_loss_sum = 0.0
         with torch.no_grad():
-            for i, (val_inputs, val_targets, val_pv) in enumerate(val_loader):
+            for i, (val_inputs, val_targets, val_media) in enumerate(val_loader):
                 if i >= eval_steps:
                     break
                 val_inputs = val_inputs.to(device, non_blocking=True)
                 val_targets = val_targets.to(device, non_blocking=True)
-                val_pv = val_pv.to(device, non_blocking=True)
+                val_pv = val_media["pixel_values"]
+                if val_pv is not None:
+                    val_pv = val_pv.to(device, non_blocking=True)
                 with autocast_ctx:
                     val_loss = model(input_ids=val_inputs, targets=val_targets, pixel_values=val_pv)
                 val_loss_sum += val_loss.item()
@@ -218,13 +227,15 @@ for step in range(start_step, steps):
     # -------------------------------------------------------------------------
     # Get next batch
     try:
-        inputs, targets, pixel_values = next(train_iter)
+        inputs, targets, media = next(train_iter)
     except StopIteration:
         train_iter = iter(train_loader)
-        inputs, targets, pixel_values = next(train_iter)
+        inputs, targets, media = next(train_iter)
     inputs = inputs.to(device, non_blocking=True)
     targets = targets.to(device, non_blocking=True)
-    pixel_values = pixel_values.to(device, non_blocking=True)
+    pixel_values = media["pixel_values"]
+    if pixel_values is not None:
+        pixel_values = pixel_values.to(device, non_blocking=True)
 
     # -------------------------------------------------------------------------
     # Training step with timing

@@ -50,108 +50,106 @@ cp data/overfit_dataset.json data/val.json
 
 All parameters trainable (SAM, CLIP, projector, GPT).
 
+Uses unified multimodal pipeline with PyTorch DataLoader for high MFU:
+- `TaskMixture` with `OverfitSamples` task
+- `create_multimodal_loader()` with num_workers=4, pin_memory, prefetch
+
 ### Single GPU
 ```bash
-uv run python -m scripts.vis_tok_train --steps=500 --batch_size=1
+uv run python -m scripts.vis_tok_train --steps=300 --batch_size=2
 ```
 
 ### Multi-GPU (recommended)
 ```bash
 uv run torchrun --standalone --nproc_per_node=2 -m scripts.vis_tok_train \
-    --steps=500 \
-    --batch_size=1
+    --steps=300 \
+    --batch_size=2
 ```
 
 ### Config options
 ```bash
---steps=500          # Number of training steps
---batch_size=1       # Batch size per GPU (increase if GPU memory allows)
+--steps=300          # Number of training steps
+--batch_size=2       # Batch size per GPU
 --lr=5e-5            # Learning rate
 --eval_every=100     # Evaluate every N steps
---save_every=100     # Save checkpoint every N steps
+--save_every=100     # Save checkpoint every N steps (saves DeepEncoder checkpoint)
 --resume_step=100    # Resume from checkpoint (e.g., step_100.pt)
 ```
 
 ### Expected output
 ```
-step 00000/500 | loss: 5.5341 | mfu: 2.23
-step 00100/500 | loss: 1.1032 | val loss: 1.0xxx
-step 00200/500 | loss: 0.1024 | val loss: 0.1xxx
-step 00499/500 | loss: 0.01xx | val loss: 0.00xx
-Final checkpoint saved to checkpoints/step_500.pt
+Train samples: 10, Val samples: 10
+Batch shapes: inputs=torch.Size([2, 646]), targets=torch.Size([2, 646]), pixel_values=torch.Size([2, 3, 1024, 1024])
+step 00000/300 | loss: 6.4972 | mfu: 11.70
+step 00100/300 | Validation loss: 0.0169 | min: 0.0169
+step 00200/300 | Validation loss: 0.0072 | min: 0.0072
+step 00299/300 | Validation loss: 0.0082 | min: 0.0072
+Saved DeepEncoder checkpoint to checkpoints/deepencoder_300.pt
 ```
+
+Note: Stage 1 saves a DeepEncoder-only checkpoint (SAM + CLIP + projector + special tokens) for Stage 2.
 
 ---
 
 ## Stage 2: Vision Mid Training (vis_mid_train.py)
 
-SAM frozen, trains CLIP + projector + GPT. Supports mixed vision + text training.
+SAM frozen, trains CLIP + projector + fresh GPT (per DeepSeek-OCR paper).
 
-### Prerequisites for mixed training (text_ratio > 0)
+Uses unified multimodal pipeline with PyTorch DataLoader:
+- `TaskMixture` with `OverfitSamples` (and optionally other tasks)
+- `create_multimodal_loader()` with num_workers=4, pin_memory, prefetch
+- Loads DeepEncoder from Stage 1 + fresh nanochat GPT from HuggingFace
 
-```bash
-# Install pyarrow
-uv pip install pyarrow
+**Note:** Mixed vision+text batches not yet supported (padding issue). Currently all samples in a batch must have images OR all must be text-only.
 
-# Download FineWeb text data (2 shards minimum)
-uv run python -m nanochat.dataset -n 2 -w 2
-
-# Copy tokenizer for text dataloader
-mkdir -p ~/.cache/nanochat/tokenizer
-cp tokenizer/tokenizer.pkl ~/.cache/nanochat/tokenizer/tokenizer.pkl
-```
-
-### Single GPU - Vision only
+### Single GPU
 ```bash
 uv run python -m scripts.vis_mid_train \
     --steps=100 \
-    --batch_size=1 \
-    --text_ratio=0.0 \
-    --resume_from_stage1=checkpoints/step_500.pt
+    --batch_size=2 \
+    --resume_from_deepencoder=checkpoints/deepencoder_300.pt
 ```
 
-### Multi-GPU - Vision only
+### Multi-GPU (recommended)
 ```bash
 uv run torchrun --standalone --nproc_per_node=2 -m scripts.vis_mid_train \
     --steps=100 \
-    --batch_size=1 \
-    --text_ratio=0.0 \
-    --resume_from_stage1=checkpoints/step_500.pt
-```
-
-### Multi-GPU - Mixed training (90% vision, 10% text)
-```bash
-uv run torchrun --standalone --nproc_per_node=2 -m scripts.vis_mid_train \
-    --steps=100 \
-    --batch_size=1 \
-    --text_ratio=0.1 \
-    --seq_len=2048 \
-    --resume_from_stage1=checkpoints/step_500.pt
+    --batch_size=2 \
+    --resume_from_deepencoder=checkpoints/deepencoder_300.pt
 ```
 
 ### Config options
 ```bash
---steps=5000              # Number of training steps
---batch_size=4            # Batch size per GPU
---lr=3e-5                 # Learning rate (lower than stage 1)
---seq_len=8192            # Sequence length (use 2048 for 24GB GPUs)
---text_ratio=0.1          # 10% text, 90% vision (0.0 = vision only)
---resume_from_stage1=...  # Path to stage 1 checkpoint
---resume_step=1000        # Resume from stage 2 checkpoint
---lr_decay_step=2000      # Decay LR every N steps
---lr_decay_gamma=0.1      # LR decay factor
+--steps=5000                      # Number of training steps
+--batch_size=4                    # Batch size per GPU
+--lr=3e-5                         # Learning rate (lower than stage 1)
+--seq_len=8192                    # Sequence length (use 2048 for 24GB GPUs)
+--resume_from_deepencoder=...     # Path to DeepEncoder checkpoint (REQUIRED)
+--resume_step=1000                # Resume from stage 2 checkpoint
+--lr_decay_step=2000              # Decay LR every N steps
+--lr_decay_gamma=0.1              # LR decay factor
 ```
 
-### Expected output (from stage1 checkpoint)
+### Configuring Task Mixture
+
+Edit the TaskMixture section at the top of vis_mid_train.py:
+```python
+train_ds = TaskMixture([
+    OverfitSamples(data_dir=data_dir, split="train"),  # vision task
+    # SmolTalk(split="train", stop=10),  # TODO: fix mixed batch handling
+])
 ```
-Loading from stage 1 checkpoint: checkpoints/step_500.pt
+
+### Expected output
+```
+Loading DeepEncoder: checkpoints/deepencoder_300.pt
+Loading fresh nanochat GPT from HuggingFace...
 Freezing SAM encoder...
 Parameters: 866,191,616 trainable / 962,362,880 total
 
-step 00000/100 | loss: 0.0003 | lr: 3.00e-07  # Low loss from stage1
-step 00002/100 | loss: 3.9291 | lr: 9.00e-07  # Text batch (higher loss)
-...
-step 00099/100 | val loss: 0.01xx
+step 00000/100 | loss: 6.9126 | lr: 3.00e-07
+step 00050/100 | loss: 1.2345 | lr: 1.50e-05
+Step 00100 | Validation loss: 0.9700 | min: 0.9700
 SUCCESS: Stage 2 training converged!
 ```
 

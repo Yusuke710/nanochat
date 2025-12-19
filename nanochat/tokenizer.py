@@ -26,6 +26,14 @@ SPECIAL_TOKENS = [
     "<|image|>", # placeholder for vision embeddings
 ]
 
+# Media placeholders - user writes <image>, tokenizer emits <|image|>
+# This allows unified tokenization for all modalities via render_conversation()
+MEDIA_PLACEHOLDERS = {
+    "<image>": "<|image|>",
+    "<audio>": "<|audio|>",   # future
+    "<video>": "<|video|>",   # future
+}
+
 # NOTE: this split pattern deviates from GPT-4 in that we use \p{N}{1,2} instead of \p{N}{1,3}
 # I did this because I didn't want to "waste" too many tokens on numbers for smaller vocab sizes.
 # I haven't validated that this is actually a good idea, TODO.
@@ -321,7 +329,17 @@ class RustBPETokenizer:
 
             if message["role"] == "user":
                 assert isinstance(content, str), "User messages are simply expected to be strings"
-                value_ids = self.encode(content)
+                # Handle media placeholders - replace <image> etc with <|image|> etc
+                allowed = set()
+                for placeholder, special in MEDIA_PLACEHOLDERS.items():
+                    if placeholder in content:
+                        content = content.replace(placeholder, special)
+                        allowed.add(special)
+                # Use allowed_special if media tokens present, otherwise normal encode
+                if allowed:
+                    value_ids = list(self.enc.encode(content, allowed_special=allowed))
+                else:
+                    value_ids = self.encode(content)
                 add_tokens(user_start, 0)
                 add_tokens(value_ids, 0)
                 add_tokens(user_end, 0)
