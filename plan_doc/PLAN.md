@@ -86,6 +86,8 @@ Token formula: `(num_queries + 1) × num_queries + 1` where `num_queries = resol
 
 **Current:** Base mode only. Gundam mode deferred to post-Tier-2.
 
+**Future Gundam Mode:** When Base mode works for Tier-2, add dynamic resolution with crop-based multi-scale processing. See DeepSeek-OCR paper Section 3.2.2.
+
 ## Evaluation
 
 ### Quick Testing
@@ -100,11 +102,32 @@ python -m scripts.vision_sample --resume_step=150
 | Tier | Criteria | Status |
 |------|----------|--------|
 | 1 | Overfit to near-zero loss on 10 images. 100% accuracy on `vision_sample.py`. | ✅ Complete |
-| 2 | Smooth training on 300 examples from allenai/olmOCR-mix-1025 | Pending |
+| 2 | Mixed vision+text training on scaled data (details below) | Pending |
 | 3 | Competitive scores on Fox/OmniDocBench | Pending |
+
+### Tier 2 Data Strategy
+
+**Goal:** Verify mixed data pipeline works and scales beyond Tier 1 overfitting.
+
+**Datasets (1k samples each):**
+- **olmOCR** (allenai/olmOCR-mix-1025) - OCR/document understanding
+- **LLaVA-CC3M-Pretrain-595K** - image captioning/general vision
+- **SmolTalk** - text-only conversation data
+
+**Training Stages:**
+
+| Stage | Data | Purpose |
+|-------|------|---------|
+| Stage 1 | olmOCR (1k) + LLaVA-CC3M-Pretrain-595K (1k) | Vision-only pretraining |
+| Stage 2 | olmOCR (1k) + LLaVA-CC3M-Pretrain-595K (1k) + SmolTalk (1k) | Mixed vision+text fine-tuning |
+
+**Rationale:**
+- Small scale (3k total) enables quick iteration
+- Two vision datasets ensure diversity in vision tasks
+- Text data in Stage 2 validates mixed modality training
+- Confirms data pipeline scales before moving to Tier 3 full datasets
 
 ## Related Docs
 
-- [dataloader.md](dataloader.md) - Vision dataloader design
-- [data_plan.md](data_plan.md) - Dataset details and Task class templates
+- [vision_tasks.md](vision_tasks.md) - Vision dataloader design and Task patterns
 - [DeepEncoder_loading_plan.md](DeepEncoder_loading_plan.md) - HuggingFace weight mappings

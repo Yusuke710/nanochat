@@ -1,7 +1,4 @@
-make a new branch and work on it
-
-Whenever you modify the files from DeepSeek-OCR, please write the summary modification under # Copied from https://github.com/deepseek-ai/DeepSeek-OCR so that it is easier to track the changes
-
-Inside .env, you will find huggingface token and WandB token you can use to download model, data and log training 
-
-If you have to make a decision that is not in plan. make sure you write it into .md so that user can track it later.
+- Inside .env, you will find huggingface token and WandB token you can use to download model, data and log training 
+- If you have to make a decision that is not in plan_doc/ make sure you write it into desicions.md and findings.md so that user can track it later.
+- Before implementation, please check plan_doc/ for code structures and plans.
+- I rent GPU from remote server and you start with new environment every time. Please refer to reproduce.md to understand the project and refer to it when you are stuck with downloading dependencies or training a model.
