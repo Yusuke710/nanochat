@@ -109,6 +109,11 @@ class NanoDeepseekOCR(nn.Module):
     def get_device(self):
         return self.gpt.get_device()
 
+    @property
+    def suppressed_tokens(self):
+        """Tokens that should never be generated (input-only placeholders)."""
+        return [self.image_token_id] if self.image_token_id is not None else []
+
     def init_weights(self):
         """Initialize GPT weights. Vision encoder weights are loaded separately."""
         self.gpt.init_weights()
@@ -299,9 +304,9 @@ class NanoDeepseekOCR(nn.Module):
             logits = self.forward(input_ids, vision_embeds=vision_embeds)
             logits = logits[:, -1, :]  # (1, vocab_size)
 
-            # Never generate image tokens (they're input-only placeholders)
-            if self.image_token_id is not None:
-                logits[:, self.image_token_id] = float('-inf')
+            # Suppress tokens that should never be generated
+            for token_id in self.suppressed_tokens:
+                logits[:, token_id] = float('-inf')
 
             # Apply temperature and top-k
             if top_k is not None:
