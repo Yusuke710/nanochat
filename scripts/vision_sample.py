@@ -47,10 +47,9 @@ def evaluate_sample(model, tokenizer, image_token_id, sample, data_dir, device, 
         Image.open(Path(data_dir) / sample["image"]).convert("RGB"), base_size=1024
     ).unsqueeze(0).to(device)
 
-    # Tokenize and expand
-    prompt_ids = tokenizer.enc.encode(
-        sample["prompt"].replace("<image>", "<|image|>"), allowed_special={"<|image|>"}
-    )
+    # Tokenize and expand (strip legacy tokens like <|grounding|>)
+    prompt = sample["prompt"].replace("<|grounding|>", "").replace("<image>", "<|image|>")
+    prompt_ids = tokenizer.enc.encode(prompt, allowed_special={"<|image|>"})
     expanded = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
     answer_ids = tokenizer.encode(sample["answer"])
     prompt_len = len(expanded)
@@ -87,6 +86,7 @@ def main():
     parser.add_argument("--checkpoint", type=str)
     parser.add_argument("--step", type=int)
     parser.add_argument("--data-dir", type=str, default="data")
+    parser.add_argument("--dataset", type=str, default="val.json", help="Dataset file (default: val.json)")
     parser.add_argument("--loss-only", action="store_true")
     args = parser.parse_args()
 
@@ -105,8 +105,9 @@ def main():
     step_num = Path(ckpt).stem.split("_")[-1]
     output_path = f"{args.data_dir}/inference_results_step{step_num}.json"
 
-    # Load
-    with open(f"{args.data_dir}/overfit_dataset.json", encoding="utf-8") as f:
+    # Load dataset (val.json by default, or specify with --dataset)
+    dataset_path = f"{args.data_dir}/{args.dataset}"
+    with open(dataset_path, encoding="utf-8") as f:
         samples = json.load(f)
     print(f"Loading {ckpt}")
     model, tokenizer, image_token_id, device = load_model(ckpt)
