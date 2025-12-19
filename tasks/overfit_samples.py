@@ -23,9 +23,9 @@ from tasks.common import Task
 
 
 class OverfitSamples(Task):
-    """Vision task - loads from data/{split}.json"""
+    """Vision task - loads from data/overfit_samples/{split}.json"""
 
-    def __init__(self, data_dir="data", split="train", **kwargs):
+    def __init__(self, data_dir="data/overfit_samples", split="train", **kwargs):
         super().__init__(**kwargs)
         json_path = os.path.join(data_dir, f"{split}.json")
         if not os.path.exists(json_path):

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "receipt_000",
+    "type": "receipt_ocr",
+    "expected": "tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD\n789417-W\nNO.53 55,57 & 59, JALAN SAGU 18,\nTAMAN DAYA,\n81100 JOHOR BAHRU,\nJOHOR.\n\nDocument No : TD01167104\nDate : 25/12/2018 8:13:39 PM\nCashier : MANIS\nMember :\n\nCASH BILL\n\nCODE/DESC          PRICE    Disc    AMOUNT\nQTY                RM               RM\n\n9556939040116 KF MODELLING CLAY KIDDY FISH\n1 PC *             9.00     0.00    9.00\n\nTotal :                             9.00\nRounding Adjustment :               0.00\nRounded Total (RM):                 9.00\n\nCash                               10.00\nCHANGE                              1.00\n\nGOODS SOLD ARE NOT RETURNABLE OR\nEXCHANGEABLE\n\nTHANK YOU\nPLEASE COME AGAIN !",
+    "generated": "<|user_end|><|assistant_start|>tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD\n789417-W\nNO.53 55,57 & 59, JALAN SAGU 18,\nTAMAN DAYA,\n81100 JOHOR BAHRU,\nJOHOR.\n\nDocument No : TD01167104\nDate : 25/12/2018 8:13:39 PM\nCashier : MANIS\nMember :\n\nCASH BILL\n\nCODE/DESC",
+    "loss": 0.168534,
+    "word_overlap": 0.493
+  },
+  {
+    "id": "receipt_001",
+    "type": "receipt_ocr",
+    "expected": "tan woon yann\n\nINDAH GIFT & HOME DECO\n27,JALAN DEDAP 13,\nTAMAN JOHOR JAYA,\n81100 JOHOR BAHRU,JOHOR.\nTel:07-3507405  Fax:07-3558160\n\nRECEIPT\n\n19/10/2018  20:49:59 #01\nCashier: CN      Location/SP: 05 /0531\n\nMB: M026588\nRoom No: 01                    050100035279\n\nDesc/Item         Qty   Price  Amt(RM)\nST-PRIVILEGE CARD/GD INDAH\n88888              1    10.00   10.00\nGF-TABLE LAMP/STITCH <i>\n62483              1    55.90   55.90\n              @DISC 10.00%      -5.59\n#Total Qty    2           ---------\nTOTAL AMT.............. RM      60.31\nROUNDING ADJ...........         -0.01\n                        ---------\n                   RM      60.30\nCASH................... RM      70.30\nCHANGE................. RM      10.00\n\nThank You ! Please Come Again !\nGoods Sold Are Not Returnable\nDealing In Wholesale And Retail.",
+    "generated": "<|user_end|><|assistant_start|>tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD\n789417-W\nNO.53 55,57 & 59, JALAN SAGU 18,\nTAMAN DAYA,\n81100 JOHOR BAHRU,\nJOHOR.\n\nDocument No : TD01167104\nDate : 25/12/2018 8:13:39 PM\nCashier : MANIS\nMember :\n\nCASH BILL\n\nCODE/DESC",
+    "loss": 0.164081,
+    "word_overlap": 0.075
+  },
+  {
+    "id": "receipt_002",
+    "type": "receipt_ocr",
+    "expected": "tan woon yann\n\nMR D.I.Y. (JOHOR) SDN BHD\n(CO.REG :933109-X)\nLOT 1851-A & 1851-B, JALAN KPB 6,\nKAWASAN PERINDUSTRIAN BALAKONG,\n43300 SERI KEMBANGAN, SELANGOR\n(MR DIY TESCO TERBAU)\n-INVOICE-\n\n----------------------------------------\nCHOPPING BOARD 35.5x25.5CM 803M#\nEZ10HD05 - 24\n8970669            1 X  19.00   19.00\nAIR PRESSURE SPRAYER SX-575-1 1.5L\nHC03-7 - 15\n9066468            1 X   8.02    8.02\nWAXCO WINDSHILED CLEANER 120ML\nWA14-3A - 48\n9557031100236      1 X   3.02    3.02\nBOPP TAPE 48MM*100M CLEAR\nFZ-04 - 36\n6935818350846      1 X   3.88    3.88\n\nItem(s) : 4                  Qty(s) : 4\n............................................\nTOTAL                        RM  33.92\nROUNDING ADJUSTMENT          -RM  0.02\nTOTAL ROUNDED                RM  33.90\nCASH                         RM  50.00\nCHANGE                       RM  16.10\n*------------------------------------------\n12-01-19 21:13 SH01 ZK09   T4 R000027830\nOPERATOR TRAINEE CASHIER\n\nEXCHANGE ARE ALLOWED WITHIN\n7 DAYS WITH RECEIPT.\nSTRICTLY NO CASH REFUND.",
+    "generated": "<|user_end|><|assistant_start|>tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD\n789417-W\nNO.53 55,57 & 59, JALAN SAGU 18,\nTAMAN DAYA,\n81100 JOHOR BAHRU,\nJOHOR.\n\nDocument No : TD01167104\nDate : 25/12/2018 8:13:39 PM\nCashier : MANIS\nMember :\n\nCASH BILL\n\nCODE/DESC",
+    "loss": 0.134569,
+    "word_overlap": 0.095
+  },
+  {
+    "id": "receipt_003",
+    "type": "receipt_ocr",
+    "expected": "tan woon yann\n\nYONGFATT ENTERPRISE\n(JM0517726)\nNO.122,124, JALAN DEDAP 13\n81100 JOHOR BAHRU\n\nTEL  07-3523888\nGST ID : 000849813504\nSIMPLIFIED TAX INVOICE\n\nCASH\nDoc No    CS00031663    Date   25/12/2018\nCashier   USER          Time   12:31:00\nSalesperson :           Ref.\n\nItem           Qty    S/Price   Amount   Tax\nE8318           1      80.91    80.91    SR\nELEGANT SCH TR BAG 15\n    Total Qty   1               80.91\n\nTotal Sales (Excluding GST) :   80.91\n                   Discount :    0.00\n                  Total GST :    0.00\n                   Rounding :   -0.01\n\nTotal Sales (Inclusive of GST) : 80.90\n                       CASH :  100.00\n                     Change :   19.10\n\nGST SUMMARY\nTax Code    %    Amt (RM)    Tax (RM)\nSR          0      80.91       0.00\n\n         Total:    80.91       0.00\n\nGOODS SOLD ARE NOT REFUNDABLE. ONLY\nEXCHANGEABLE IN 7 DAYS",
+    "generated": "<|user_end|><|assistant_start|>tan woon yann\n\nBOOK TA .K (TAMAN DAYA) SDN BHD\n789417-W\nNO.53 55,57 & 59, JALAN SAGU 18,\nTAMAN DAYA,\n81100 JOHOR BAHRU,\nJOHOR.\n\nDocument No : TD01167104\nDate : 25/12/2018 8:13:39 PM\nCashier : MANIS\nMember :\n\nCASH BILL\n\nCODE/DESC",
+    "loss": 0.232659,
+    "word_overlap": 0.141
+  },
+  {
+    "id": "chart_01",
+    "type": "chart_qa",
+    "expected": "Title: Projected share of the population in extreme poverty, 2015 to 2021\n\nDescription: The share of people projected to be living in extreme poverty through to 2030. Extreme poverty is defined by the international poverty line of $1.90 per day (2011, PPP-adjusted). These projections are based on a business-as-usual scenario of recent socioeconomic trends. Categories of fragility are based on the OECD's 2018 States of Fragility framework.\n\nChart Type: Line chart\n\nData:\n- Nigeria: 38% (2015) → 47% (2021)\n- Extreme fragility: 38% (2015) → 35% (2021)\n- Africa: 33% (2015) → 30% (2021)\n- Fragile: 23% (2015) → 20% (2021)\n- World: 10% (2015) → 7% (2021)\n- India: 13% (2015) → 2% (2021)\n\nSource: Crespo-Cuaresma et al. (2018), Our World in Data",
+    "generated": "<|user_end|><|assistant_start|>Title: Projected share of the population in extreme poverty, 2015 to 2021\n\nDescription: The share of people projected to be living in extreme poverty through to 2030. Extreme poverty is defined by the international poverty line of $1.90 per day (2011, PPP-adjusted). These projections are based on a business-as-usual scenario of recent socioeconomic trends. Categories of fragility are based on the OECD's 2018 States of Fragility framework.\n\nChart Type: Line chart\n\nData:\n- Nigeria: 38% (2015) → 47% (2021)\n- Extreme fragility: 38% (2015) → 35% (2021)\n- Africa: 33% (2015) → 30% (2021)\n- Fragile: 23% (2015) → 20% (2021)\n- World: 10% (2015) → 7% (2021)\n- India: 13% (2015) → 2% (2021)\n\nSource: Crespo-Cuaresma et al. (2018), Our World in Data<|assistant_end|>",
+    "loss": 0.07579,
+    "word_overlap": 0.974
+  },
+  {
+    "id": "chart_02",
+    "type": "chart_qa",
+    "expected": "Title: Death rates from substance use disorders, 1995\n\nDescription: Substance use disorders refers to direct deaths from overdoses of alcohol or illicit drugs (which include opioids, cocaine, amphetamines and cannabis). Death rates are measured as the number of deaths per 100,000 population.\n\nChart Type: Horizontal bar chart\n\nData:\n- Mauritius: 6.47\n- Cyprus: 1.34\n\nSource: IHME, Global Burden of Disease\nNote: To allow comparisons between countries and over time this metric is age-standardized.\nURL: OurWorldInData.org/substance-use • CC BY",
+    "generated": "<|user_end|><|assistant_start|>Title: Death rates from substance use disorders, 1995\n\nDescription: Substance use disorders refers to direct deaths from overdoses of alcohol or illicit drugs (which include opioids, cocaine, amphetamines and cannabis). Death rates are measured as the number of deaths per 100,000 population.\n\nChart Type: Horizontal bar chart\n\nData:\n- Mauritius: 6.47\n- Cyprus: 1.34\n\nSource: IHME, Global Burden of Disease\nNote: To allow comparisons between countries and over time this metric is age-standardized.\nURL: OurWorldInData.org/substance-use • CC BY<|assistant_end|>",
+    "loss": 0.143391,
+    "word_overlap": 0.97
+  },
+  {
+    "id": "chart_03",
+    "type": "chart_qa",
+    "expected": "Title: Share of cumulative plastic exports by top ten exporters (1988-2016)\n\nDescription: Share of cumulative plastic exports over the period 1988 to 2016 by the top ten exporting countries.\n\nChart Type: Horizontal bar chart\n\nData:\n- Top 10 exporters: 78%\n- Hong Kong: 26.1%\n- United States: 12.4%\n- Japan: 10.3%\n- Germany: 8.22%\n- Mexico: 4.9%\n- United Kingdom: 4.31%\n- Netherlands: 3.59%\n- France: 3.52%\n- Belgium: 2.99%\n- Canada: 1.81%\n\nSource: Brooks et al. (2018), CC BY",
+    "generated": "<|user_end|><|assistant_start|>Title: Projected share of the population in extreme poverty, 2015 to 2021\n\nDescription: The share of people projected to be living in extreme poverty through to 2030. Extreme poverty is defined by the international poverty line of $1.90 per day (2011, PPP-adjusted). These projections are based on a business-as-usual scenario of recent socioeconomic trends. Categories of fragility are based on the OECD's 2018 States of Fragility framework.\n\nChart Type: Line chart\n\nData:\n- Nigeria: 38% (2015) → 47% (2021)\n- Extreme fragility: 38% (2015) → 35% (2021)\n- Africa: 33% (2015) → 30% (2021)\n- Fragile: 23% (2015) → 20% (2021)\n- World: 10% (2015) → 7% (2021)\n- India: 13% (2015) → 2% (2021)\n\nSource: Crespo-Cuaresma et al. (2018), Our World in Data<|assistant_end|>",
+    "loss": 0.111795,
+    "word_overlap": 0.246
+  },
+  {
+    "id": "textvqa_01",
+    "type": "scene_text_vqa",
+    "expected": "This image shows a Dakota Digital single-use camera. The camera has a two-tone design with a dark blue plastic body and a silver/beige curved panel in the center. Text visible on the camera includes \"DAKOTA DIGITAL\" in white letters at the top left, \"Single-Use Camera\" below it, and the \"Pure digital\" logo at the bottom left corner. The camera features a built-in flash unit at the top, a small optical viewfinder on the right side, and a circular camera lens with a red center indicator.",
+    "generated": "<|user_end|><|assistant_start|>This image shows a Dakota Digital single-use camera. The camera has a two-tone design with a dark blue plastic body and a silver/beige curved panel in the center. Text visible on the camera includes \"DAKOTA DIGITAL\" in white letters at the top left, \"Single-Use Camera\" below it, and the \"Pure digital\" logo at the bottom left corner. The camera features a built-in flash unit at the top, a small optical viewfinder on the right side, and a circular camera lens with a red center indicator.<|assistant_end|>",
+    "loss": 0.161396,
+    "word_overlap": 0.966
+  },
+  {
+    "id": "textvqa_02",
+    "type": "scene_text_vqa",
+    "expected": "This image shows a large banner advertisement mounted on a glass building facade. The banner has a light blue background and displays \"DRUPALCON\" in large white capital letters at the top, with \"COPENHAGEN\" in smaller white text below it. The lower portion of the banner features a row of cartoon water droplet mascots (Drupal's logo character \"Druplicon\") dressed in various costumes representing different countries and characters - including flags, crowns, viking helmets, and sunglasses. This is promotional signage for DrupalCon Copenhagen, a web development conference.",
+    "generated": "<|user_end|><|assistant_start|>This image shows a large banner advertisement mounted on a glass building facade. The banner has a light blue background and displays \"DRUPALCON\" in large white capital letters at the top, with \"COPENHAGEN\" in smaller white text below it. The lower portion of the banner features a row of cartoon water droplet mascots (Drupal's logo character \"Druplicon\") dressed in various costumes representing different countries and characters - including flags, crowns, viking helmets, and sunglasses. This is promotional signage for DrupalCon Copenhagen, a web development conference.<|assistant_end|>",
+    "loss": 0.148417,
+    "word_overlap": 0.985
+  },
+  {
+    "id": "textvqa_03",
+    "type": "scene_text_vqa",
+    "expected": "This image shows a close-up of a Stone Brewing beer bottle. The dark bottle features the Stone brewery logo at the top in grey/blue text reading \"STONE\". The main label shows an illustration of a gargoyle figure in a seated pose. Below the illustration is the text \"Sublimely SELF-RIGHTEOUS\" in stylized script and block letters, with \"ALE\" at the bottom indicating this is an ale-style beer. The label also shows \"8% Alc/Vol\". In the background, there's another beer bottle partially visible with \"NINK\" text (likely Ninkasi Brewing) showing \"BELIEVER DOUBLE RED ALE\".",
+    "generated": "<|user_end|><|assistant_start|>This image shows a close-up of a Stone Brewing beer bottle. The dark bottle features the Stone brewery logo at the top in grey/blue text reading \"STONE\". The main label shows an illustration of a gargoyle figure in a seated pose. Below the illustration is the text \"Sublimely SELF-RIGHTEOUS\" in stylized script and block letters, with \"ALE\" at the bottom indicating this is an ale-style beer. The label also shows \"8% Alc/Vol\". In the background, there's another beer bottle partially visible with \"NINK\" text (likely Ninkasi Brewing) showing \"BELIEVER DOUBLE RED ALE\".<|assistant_end|>",
+    "loss": 0.119481,
+    "word_overlap": 0.984
+  }
+]

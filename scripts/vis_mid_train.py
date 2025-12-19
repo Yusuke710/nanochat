@@ -41,7 +41,7 @@ from tasks.common import TaskMixture
 # User settings (overridable via CLI)
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Data
-data_dir = "data"  # directory containing train.json, val.json, images/
+data_dir = "data/overfit_samples"  # directory containing train.json, val.json, images/
 # Model
 base_size = 1024  # image resolution
 seq_len = 8192  # longer sequences for stage 2

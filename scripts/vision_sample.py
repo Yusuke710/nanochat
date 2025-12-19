@@ -85,7 +85,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str)
     parser.add_argument("--step", type=int)
-    parser.add_argument("--data-dir", type=str, default="data")
+    parser.add_argument("--data-dir", type=str, default="data/overfit_samples")
     parser.add_argument("--dataset", type=str, default="val.json", help="Dataset file (default: val.json)")
     parser.add_argument("--loss-only", action="store_true")
     args = parser.parse_args()

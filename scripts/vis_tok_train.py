@@ -35,7 +35,7 @@ from nanochat.common import compute_init, compute_cleanup, print0, autodetect_de
 # User settings (overridable via CLI)
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Data
-data_dir = "data"  # directory containing train.json, val.json, images/
+data_dir = "data/overfit_samples"  # directory containing train.json, val.json, images/
 # Model
 base_size = 1024  # image resolution
 seq_len = 4096  # sequence length
