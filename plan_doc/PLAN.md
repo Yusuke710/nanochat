@@ -36,9 +36,9 @@ Vision Embeddings → Replace <image> positions → nanochat GPT (~570M)
 
 ## Core Design (Karpathy Style)
 
-1. **No special tokenizer methods** - just encode + expand
-2. **Logic in forward()** - vision embedding merge is explicit
-3. **One unified path** - same `tokenize_sample()` for vision and text
+1. **One tokenizer for all modalities** - `render_conversation()` handles `<image>`, `<audio>`, `<video>` via `MEDIA_PLACEHOLDERS` dict
+2. **One loader for all stages** - `multimodal_data_generator()` works for vision-only and mixed training
+3. **Logic in forward()** - vision embedding merge is explicit
 4. **Minimal abstractions** - clear data flow, no hidden magic
 
 ## File Structure
@@ -51,8 +51,8 @@ nanochat/
 │   ├── clip_sdpa.py
 │   └── load_pretrained.py
 ├── image_process.py          # Image → tensor
-├── vision_dataloader.py      # Vision data generator
-├── tokenizer.py              # Extended with <|image|> token
+├── multimodal_dataloader.py  # Unified loader for all modalities
+├── tokenizer.py              # MEDIA_PLACEHOLDERS + render_conversation()
 ├── gpt.py                    # nanochat GPT
 ├── scripts/
 │   ├── vis_tok_train.py      # Stage 1 training
@@ -65,8 +65,10 @@ nanochat/
 
 | Stage | Script | Trainable | Frozen | Data | Seq Len |
 |-------|--------|-----------|--------|------|---------|
-| 1 | `vis_tok_train.py` | SAM, CLIP, Projector, GPT | Nothing | Vision only | 4096 |
-| 2 | `vis_mid_train.py` | CLIP, Projector, GPT | SAM + Conv | 90% vision + 10% text | 8192 |
+| 1 | `vis_tok_train.py` | SAM, CLIP, Projector, GPT | Nothing | `TaskMixture([VisionTask()])` | 4096 |
+| 2 | `vis_mid_train.py` | CLIP, Projector, GPT | SAM + Conv | `TaskMixture([VisionTask(), TextTask()])` | 8192 |
+
+Both stages use `multimodal_data_generator()` - only the TaskMixture contents change.
 
 **Optimizer (per DeepSeek-OCR paper):**
 - Stage 1: AdamW lr=5e-5, cosine annealing
@@ -101,9 +103,24 @@ python -m scripts.vision_sample --resume_step=150
 
 | Tier | Criteria | Status |
 |------|----------|--------|
-| 1 | Overfit to near-zero loss on 10 images. 100% accuracy on `vision_sample.py`. | ✅ Complete |
+| 1 | Overfit to near-zero loss on 10 images. 100% accuracy on `vision_sample.py`. | 🔄 Re-run with unified pipeline |
 | 2 | Mixed vision+text training on scaled data (details below) | Pending |
 | 3 | Competitive scores on Fox/OmniDocBench | Pending |
+
+### Tier 1 Re-validation (Unified Pipeline)
+
+**Why re-run:** New `multimodal_dataloader.py` and `MEDIA_PLACEHOLDERS` in tokenizer. Must verify the unified pipeline works before scaling.
+
+**Data:**
+
+| Stage | TaskMixture | Purpose |
+|-------|-------------|---------|
+| Stage 1 | `OverfitSamples(data_dir="data")` | Vision-only, 10 images |
+| Stage 2 | `OverfitSamples(...) + SmolTalk(limit=10)` | Mixed training validation |
+
+**Success criteria:**
+- Stage 1: Near-zero loss, 100% accuracy on `vision_sample.py`
+- Stage 2: Loss converges on both vision and text samples
 
 ### Tier 2 Data Strategy
 
@@ -129,5 +146,5 @@ python -m scripts.vision_sample --resume_step=150
 
 ## Related Docs
 
-- [vision_tasks.md](vision_tasks.md) - Vision dataloader design and Task patterns
+- [vision_tasks.md](vision_tasks.md) - Unified multimodal pipeline (tokenizer, dataloader, Task patterns)
 - [DeepEncoder_loading_plan.md](DeepEncoder_loading_plan.md) - HuggingFace weight mappings
