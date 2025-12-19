@@ -394,3 +394,76 @@ Engine.generate() (KV cache): 0.82s
 Match: True
 Speedup: 1.4x
 ```
+
+## DeepEncoder Checkpoint Testing
+
+### Overview
+Tested the DeepEncoder-only checkpoint feature (commit a6e5053) which saves only vision encoder weights for Stage 2 training with a fresh GPT.
+
+### Test Sequence
+
+**Stage 1**: Train and save DeepEncoder checkpoint
+```bash
+python -m scripts.vis_tok_train --steps=300 --batch_size=2
+```
+- Creates `checkpoints/deepencoder_300.pt` (1.6GB) - vision encoder only
+- Creates `checkpoints/step_300.pt` (3.8GB) - full model
+
+**DeepEncoder checkpoint contents verified**:
+- 477 keys total
+- Key prefixes: `sam_model`, `vision_model`, `projector`, `image_newline`, `view_separator`
+- **No `gpt.*` keys** ✓
+
+**Stage 2**: Load DeepEncoder + fresh GPT
+```bash
+python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_300.pt --steps=300 --text_ratio=0.0 --batch_size=2
+```
+- Loads DeepEncoder from checkpoint ✓
+- Downloads fresh nanochat GPT from HuggingFace ✓
+- Loss decreased: 5.12 → 0.15 (val loss: 0.30) ✓
+
+**Inference results after Stage 2 (300 steps)**:
+| Sample | Loss | Overlap |
+|--------|------|---------|
+| receipt_000 | 0.1355 | 17% |
+| receipt_001 | 0.1238 | 40% |
+| receipt_002 | 0.1363 | 9% |
+| receipt_003 | 0.3185 | 44% |
+| chart_01 | 0.0201 | 97% ✓ |
+| chart_02 | 0.0131 | 98% ✓ |
+| chart_03 | 0.1844 | 26% |
+| textvqa_01 | 0.0072 | 100% ✓ |
+| textvqa_02 | 0.0240 | 96% ✓ |
+| textvqa_03 | 0.0173 | 68% ✓ |
+| **Average** | **0.098** | **59.6%** |
+
+### Stage 1 vs Stage 2 MFU Difference
+
+**Observation**: Stage 2 runs ~4x faster than Stage 1 despite using longer sequence length.
+
+| Metric | Stage 1 | Stage 2 |
+|--------|---------|---------|
+| MFU | ~11-12% | ~40-45% |
+| seq_len | 4096 | 8192 |
+| batch_size | 2 | 2 |
+| Trainable params | 962M (all) | 866M (90%) |
+
+**Why the 4x speedup when only 10% params are frozen?**
+
+Model parameter breakdown:
+| Component | Params | % of Total |
+|-----------|--------|------------|
+| SAM encoder | 96M | 9.9% |
+| CLIP vision | 303M | 31.5% |
+| Projector | 2.6M | 0.3% |
+| GPT | 561M | 58.3% |
+
+The MFU difference is disproportionate because:
+
+1. **Vision backward pass is expensive**: SAM processes 1024×1024 images with spatial attention. Backward pass through vision transformers is much more compute-intensive per parameter than text transformers due to large spatial dimensions.
+
+2. **Activation memory**: SAM stores huge intermediate activations (high-res feature maps). Without gradients, these don't need to be retained for backprop.
+
+3. **Different compute patterns**: Spatial attention scales O((H×W)²) which is worse than causal text attention for backward pass.
+
+**Conclusion**: While SAM is only 10% of parameters, freezing it eliminates a disproportionate amount of compute cost, resulting in ~4x speedup.
