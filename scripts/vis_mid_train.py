@@ -1,12 +1,15 @@
 """
 Vision Mid Training (Stage 2) - Train with SAM frozen.
 
-Requires DeepEncoder checkpoint from Stage 1 (vis_tok_train.py).
-Loads trained DeepEncoder + fresh nanochat GPT (per DeepSeek-OCR paper).
+Fresh start: Load DeepEncoder from Stage 1 + fresh nanochat GPT from HuggingFace.
+Resume: Load full checkpoint directly (skip HF download).
 
 Usage:
+    # Fresh start (requires deepencoder checkpoint)
     python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_300.pt
-    python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_300.pt --steps=5000
+
+    # Resume from full checkpoint
+    python -m scripts.vis_mid_train --resume_step=500
 
 Distributed:
     torchrun --nproc_per_node=8 -m scripts.vis_mid_train --resume_from_deepencoder=...
@@ -115,31 +118,47 @@ print0(f"num_kv_heads: {num_kv_heads}")
 print0(f"seq_len: {seq_len}")
 print0(f"base_size: {base_size}")
 
-# Stage 2 REQUIRES a DeepEncoder checkpoint from Stage 1
-# (like mid_train.py requires base checkpoint, chat_sft.py requires mid checkpoint)
-assert resume_from_deepencoder, "Stage 2 requires --resume_from_deepencoder=<path>"
+# -----------------------------------------------------------------------------
+# Load model weights
+start_step = 0
 
-# Load trained DeepEncoder (SAM, CLIP, projector, special tokens)
-print0(f"Loading DeepEncoder: {resume_from_deepencoder}")
-deepencoder_state = torch.load(resume_from_deepencoder, map_location="cpu", weights_only=False)
-model.load_state_dict(deepencoder_state, strict=False)
+if resume_step >= 0:
+    # Resume from full checkpoint (skip deepencoder + HF loading)
+    # First expand embeddings to match checkpoint shape
+    if vocab_size > pretrained_vocab_size:
+        print0(f"Expanding embeddings: {pretrained_vocab_size} -> {vocab_size}")
+        model.gpt.transformer.wte = torch.nn.Embedding(vocab_size, gpt_config.n_embd)
+        model.gpt.lm_head = torch.nn.Linear(gpt_config.n_embd, vocab_size, bias=False)
+    # Load full checkpoint
+    ckpt_path = os.path.join(checkpoint_dir, f"step_{resume_step}.pt")
+    print0(f"Resuming from full checkpoint: {ckpt_path}")
+    model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
+    start_step = resume_step
+else:
+    # Fresh start: load deepencoder + fresh GPT from HuggingFace
+    assert resume_from_deepencoder, "Fresh start requires --resume_from_deepencoder=<path>"
 
-# Load fresh nanochat GPT (discard Stage 1 decoder per DeepSeek-OCR paper)
-print0("Loading fresh nanochat GPT from HuggingFace...")
-hf_token = os.getenv("HF_TOKEN")
-model.gpt = load_nanochat_gpt_from_hf(model.gpt, hf_token=hf_token, verbose=True)
+    # Load trained DeepEncoder (SAM, CLIP, projector, special tokens)
+    print0(f"Loading DeepEncoder: {resume_from_deepencoder}")
+    deepencoder_state = torch.load(resume_from_deepencoder, map_location="cpu", weights_only=False)
+    model.load_state_dict(deepencoder_state, strict=False)
 
-# Expand embeddings for new tokens
-if vocab_size > pretrained_vocab_size:
-    print0(f"Expanding embeddings: {pretrained_vocab_size} -> {vocab_size}")
-    old_wte = model.gpt.transformer.wte.weight.data
-    old_lm_head = model.gpt.lm_head.weight.data
-    model.gpt.transformer.wte = torch.nn.Embedding(vocab_size, gpt_config.n_embd)
-    model.gpt.lm_head = torch.nn.Linear(gpt_config.n_embd, vocab_size, bias=False)
-    model.gpt.transformer.wte.weight.data[:pretrained_vocab_size] = old_wte
-    model.gpt.lm_head.weight.data[:pretrained_vocab_size] = old_lm_head
-    model.gpt.transformer.wte.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
-    model.gpt.lm_head.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
+    # Load fresh nanochat GPT from HuggingFace
+    print0("Loading fresh nanochat GPT from HuggingFace...")
+    hf_token = os.getenv("HF_TOKEN")
+    model.gpt = load_nanochat_gpt_from_hf(model.gpt, hf_token=hf_token, verbose=True)
+
+    # Expand embeddings for new tokens
+    if vocab_size > pretrained_vocab_size:
+        print0(f"Expanding embeddings: {pretrained_vocab_size} -> {vocab_size}")
+        old_wte = model.gpt.transformer.wte.weight.data
+        old_lm_head = model.gpt.lm_head.weight.data
+        model.gpt.transformer.wte = torch.nn.Embedding(vocab_size, gpt_config.n_embd)
+        model.gpt.lm_head = torch.nn.Linear(gpt_config.n_embd, vocab_size, bias=False)
+        model.gpt.transformer.wte.weight.data[:pretrained_vocab_size] = old_wte
+        model.gpt.lm_head.weight.data[:pretrained_vocab_size] = old_lm_head
+        model.gpt.transformer.wte.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
+        model.gpt.lm_head.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
 
 model.set_image_token_id(image_token_id)
 
@@ -150,15 +169,6 @@ for p in model.sam_model.parameters():
     p.requires_grad = False
 
 model = model.to(device)
-
-# -----------------------------------------------------------------------------
-# Resume from checkpoint if requested (BEFORE DDP wrapping)
-start_step = 0
-if resume_step >= 0:
-    ckpt_path = os.path.join(checkpoint_dir, f"step_{resume_step}.pt")
-    print0(f"Resuming from {ckpt_path}")
-    model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=False))
-    start_step = resume_step
 
 # -----------------------------------------------------------------------------
 # Wrap with DDP for multi-GPU training
