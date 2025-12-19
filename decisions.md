@@ -178,3 +178,29 @@ if ddp:
 **Impact**: Need to ensure tokenizer exists at both locations:
 - `tokenizer/` (project directory, for vision training)
 - `~/.cache/nanochat/tokenizer/` (for text data loader)
+
+## DeepEncoder-only Checkpointing (Stage 1 → Stage 2)
+
+**Decision**: Save DeepEncoder-only checkpoint at end of Stage 1, require it for Stage 2
+**Reason**: DeepSeek-OCR paper discards decoder after Stage 1 training
+**Implementation**:
+- `vis_tok_train.py`: Saves `deepencoder_{steps}.pt` (SAM + CLIP + projector + special tokens, excludes GPT)
+- `vis_mid_train.py`: REQUIRES `--resume_from_deepencoder=<path>`, loads trained DeepEncoder + fresh nanochat GPT
+
+**Checkpoint files**:
+| File | Contents | Purpose |
+|------|----------|---------|
+| `step_{N}.pt` | Full model | Resume Stage 1, debugging |
+| `deepencoder_{N}.pt` | Vision encoder only | Stage 2 input |
+
+**Usage**:
+```bash
+# Stage 1
+python -m scripts.vis_tok_train --steps=500
+# Creates: checkpoints/deepencoder_500.pt
+
+# Stage 2
+python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_500.pt
+```
+
+**Reference**: DeepSeek-OCR paper Section 3.2 - "After DeepEncoder is ready, we use data mentioned in Section 3.4 to train the DeepSeek-OCR" (implying decoder is replaced)

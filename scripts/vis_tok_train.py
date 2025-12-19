@@ -281,9 +281,17 @@ for step in range(start_step, steps):
 # Final checkpoint (master only)
 if master_process:
     os.makedirs(checkpoint_dir, exist_ok=True)
-    final_path = os.path.join(checkpoint_dir, f"step_{steps}.pt")
-    torch.save(raw_model.state_dict(), final_path)
-    print0(f"\nFinal checkpoint saved to {final_path}")
+
+    # Save full model (for resuming/debugging)
+    full_path = os.path.join(checkpoint_dir, f"step_{steps}.pt")
+    torch.save(raw_model.state_dict(), full_path)
+    print0(f"Full checkpoint: {full_path}")
+
+    # Save DeepEncoder only (for Stage 2 - discard decoder per DeepSeek-OCR paper)
+    deepencoder_state = {k: v for k, v in raw_model.state_dict().items() if not k.startswith('gpt.')}
+    deepencoder_path = os.path.join(checkpoint_dir, f"deepencoder_{steps}.pt")
+    torch.save(deepencoder_state, deepencoder_path)
+    print0(f"DeepEncoder checkpoint: {deepencoder_path}")
 
 # Final stats
 print0(f"Total training time: {total_training_time / 60:.2f}m")

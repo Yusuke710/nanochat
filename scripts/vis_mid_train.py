@@ -1,17 +1,19 @@
 """
 Vision Mid Training (Stage 2) - Train with SAM frozen.
 
+Requires DeepEncoder checkpoint from Stage 1 (vis_tok_train.py).
+Loads trained DeepEncoder + fresh nanochat GPT (per DeepSeek-OCR paper).
+
 Usage:
-    python -m scripts.vis_mid_train                     # Train with defaults
-    python -m scripts.vis_mid_train --steps=5000        # Custom steps
-    python -m scripts.vis_mid_train --resume_step=1000  # Resume from checkpoint
-    python -m scripts.vis_mid_train --text_ratio=0.1    # 10% text, 90% vision
+    python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_300.pt
+    python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_300.pt --steps=5000
 
 Distributed:
-    torchrun --nproc_per_node=8 -m scripts.vis_mid_train
+    torchrun --nproc_per_node=8 -m scripts.vis_mid_train --resume_from_deepencoder=...
 
 Stage 2 differences from Stage 1:
     - SAM encoder frozen (only CLIP, projector, GPT trained)
+    - Fresh GPT loaded from HuggingFace (Stage 1 decoder discarded)
     - StepLR scheduler instead of constant LR
     - Lower learning rate (3e-5)
     - Longer sequences (8192)
@@ -28,11 +30,7 @@ import torch.distributed as dist
 
 from nanochat.gpt import GPTConfig
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
-from nanochat.deepencoder.load_pretrained import (
-    load_sam_weights_from_hf,
-    load_clip_weights_from_hf,
-    load_nanochat_gpt_from_hf,
-)
+from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.vision_dataloader import create_vision_loader
 from nanochat.dataloader import tokenizing_distributed_data_loader
 from nanochat.tokenizer import RustBPETokenizer
@@ -61,7 +59,7 @@ lr_decay_gamma = 0.1  # multiply LR by this factor at each decay
 checkpoint_dir = "checkpoints"  # where to save checkpoints
 save_every = 500  # save every N steps (-1 = only at end)
 resume_step = -1  # resume from step (-1 = fresh start)
-resume_from_stage1 = ""  # path to stage 1 checkpoint to resume from
+resume_from_deepencoder = ""  # DeepEncoder checkpoint path (REQUIRED for Stage 2)
 # Evaluation
 eval_every = 100  # evaluate every N steps
 eval_steps = 2  # number of batches to evaluate
@@ -117,37 +115,31 @@ print0(f"num_kv_heads: {num_kv_heads}")
 print0(f"seq_len: {seq_len}")
 print0(f"base_size: {base_size}")
 
-# Load weights (either from stage 1 checkpoint or pretrained)
-if resume_from_stage1:
-    print0(f"Loading from stage 1 checkpoint: {resume_from_stage1}")
-    # Expand embeddings first if needed
-    if vocab_size > pretrained_vocab_size:
-        old_wte = model.gpt.transformer.wte.weight.data
-        old_lm_head = model.gpt.lm_head.weight.data
-        model.gpt.transformer.wte = torch.nn.Embedding(vocab_size, gpt_config.n_embd)
-        model.gpt.lm_head = torch.nn.Linear(gpt_config.n_embd, vocab_size, bias=False)
-        model.gpt.transformer.wte.weight.data[:pretrained_vocab_size] = old_wte
-        model.gpt.lm_head.weight.data[:pretrained_vocab_size] = old_lm_head
-    model.load_state_dict(torch.load(resume_from_stage1, map_location="cpu", weights_only=False))
-else:
-    # Load pretrained weights
-    print0("Loading pretrained weights...")
-    hf_token = os.getenv("HF_TOKEN")
-    model.sam_model = load_sam_weights_from_hf(model.sam_model, hf_token=hf_token, verbose=False)
-    model.vision_model = load_clip_weights_from_hf(model.vision_model, hf_token=hf_token, verbose=False)
-    model.gpt = load_nanochat_gpt_from_hf(model.gpt, hf_token=hf_token, verbose=False)
+# Stage 2 REQUIRES a DeepEncoder checkpoint from Stage 1
+# (like mid_train.py requires base checkpoint, chat_sft.py requires mid checkpoint)
+assert resume_from_deepencoder, "Stage 2 requires --resume_from_deepencoder=<path>"
 
-    # Expand embeddings for new special tokens
-    if vocab_size > pretrained_vocab_size:
-        print0(f"Expanding embeddings from {pretrained_vocab_size} to {vocab_size}...")
-        old_wte = model.gpt.transformer.wte.weight.data
-        old_lm_head = model.gpt.lm_head.weight.data
-        model.gpt.transformer.wte = torch.nn.Embedding(vocab_size, gpt_config.n_embd)
-        model.gpt.lm_head = torch.nn.Linear(gpt_config.n_embd, vocab_size, bias=False)
-        model.gpt.transformer.wte.weight.data[:pretrained_vocab_size] = old_wte
-        model.gpt.lm_head.weight.data[:pretrained_vocab_size] = old_lm_head
-        model.gpt.transformer.wte.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
-        model.gpt.lm_head.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
+# Load trained DeepEncoder (SAM, CLIP, projector, special tokens)
+print0(f"Loading DeepEncoder: {resume_from_deepencoder}")
+deepencoder_state = torch.load(resume_from_deepencoder, map_location="cpu", weights_only=False)
+model.load_state_dict(deepencoder_state, strict=False)
+
+# Load fresh nanochat GPT (discard Stage 1 decoder per DeepSeek-OCR paper)
+print0("Loading fresh nanochat GPT from HuggingFace...")
+hf_token = os.getenv("HF_TOKEN")
+model.gpt = load_nanochat_gpt_from_hf(model.gpt, hf_token=hf_token, verbose=True)
+
+# Expand embeddings for new tokens
+if vocab_size > pretrained_vocab_size:
+    print0(f"Expanding embeddings: {pretrained_vocab_size} -> {vocab_size}")
+    old_wte = model.gpt.transformer.wte.weight.data
+    old_lm_head = model.gpt.lm_head.weight.data
+    model.gpt.transformer.wte = torch.nn.Embedding(vocab_size, gpt_config.n_embd)
+    model.gpt.lm_head = torch.nn.Linear(gpt_config.n_embd, vocab_size, bias=False)
+    model.gpt.transformer.wte.weight.data[:pretrained_vocab_size] = old_wte
+    model.gpt.lm_head.weight.data[:pretrained_vocab_size] = old_lm_head
+    model.gpt.transformer.wte.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
+    model.gpt.lm_head.weight.data[pretrained_vocab_size:].normal_(mean=0.0, std=0.02)
 
 model.set_image_token_id(image_token_id)
 
