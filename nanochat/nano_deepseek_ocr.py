@@ -190,8 +190,8 @@ class NanoDeepseekOCR(nn.Module):
         Args:
             input_ids: (B, T) token IDs with <image> tokens expanded
             targets: (B, T) target token IDs for loss computation
-            pixel_values: (B, 3, H, W) normalized image tensors
-            vision_embeds: (B, num_vision_tokens, n_embd) pre-computed vision embeddings (for efficient generation)
+            pixel_values: (N, 3, H, W) normalized image tensors (N <= B, only samples with images)
+            vision_embeds: (N, num_vision_tokens, n_embd) pre-computed vision embeddings
             loss_reduction: 'mean', 'sum', or 'none'
             kv_cache: KVCache for efficient autoregressive generation
 
@@ -210,18 +210,22 @@ class NanoDeepseekOCR(nn.Module):
 
             # Use pre-computed vision embeddings if available, otherwise encode
             if vision_embeds is None:
-                vision_embeds = self.encode_images(pixel_values)  # (B, num_vision_tokens, n_embd)
+                vision_embeds = self.encode_images(pixel_values)  # (N, num_vision_tokens, n_embd)
 
-            # Find image token positions and replace with vision embeddings
-            image_mask = (input_ids == self.image_token_id)
-
-            # Flatten vision embeddings across batch for scatter
-            # We assume one image per sample for now
+            # Flatten vision embeddings for masked_scatter
             flat_vision = vision_embeds.reshape(-1, vision_embeds.size(-1))
 
-            # Create output tensor and scatter vision embeddings
-            text_embeds = text_embeds.clone()
-            text_embeds[image_mask] = flat_vision.to(text_embeds.dtype)
+            # Detect which samples have image tokens (scalable to any modality)
+            image_mask = (input_ids == self.image_token_id)
+            has_images = image_mask.any(dim=1)  # (B,)
+
+            # Mixed batch: only scatter to samples that have image tokens
+            if has_images.sum() < B:
+                image_mask = image_mask & has_images.unsqueeze(1)
+
+            # Use masked_scatter (PyTorch-native, like HuggingFace LLaVA)
+            scatter_mask = image_mask.unsqueeze(-1).expand_as(text_embeds)
+            text_embeds = text_embeds.masked_scatter(scatter_mask, flat_vision.to(text_embeds.dtype))
 
         # Forward through GPT with inputs_embeds
         return self._forward_gpt_with_embeds(text_embeds, targets, loss_reduction, kv_cache)

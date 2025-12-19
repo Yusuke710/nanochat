@@ -63,7 +63,6 @@ def multimodal_collate_fn(batch, T, base_size):
     targets = torch.full((B, max_len), -1, dtype=torch.long)
 
     pixels_list = []
-    batch_has_image = False
 
     for i, (ids, pixel_values, image_token_id) in enumerate(batch):
         n = min(len(ids) - 1, max_len)
@@ -75,16 +74,9 @@ def multimodal_collate_fn(batch, T, base_size):
 
         if pixel_values is not None:
             pixels_list.append(pixel_values)
-            batch_has_image = True
 
-    # Build media dict
-    if batch_has_image:
-        # Pad with zeros for text-only samples in mixed batch
-        while len(pixels_list) < B:
-            pixels_list.append(torch.zeros(3, base_size, base_size))
-        media = {"pixel_values": torch.stack(pixels_list)}
-    else:
-        media = {"pixel_values": None}
+    # Build media dict - only include real data (model detects which samples from input_ids)
+    media = {"pixel_values": torch.stack(pixels_list) if pixels_list else None}
 
     return inputs, targets, media
 

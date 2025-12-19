@@ -199,11 +199,10 @@ def get_lr(step):
 # -----------------------------------------------------------------------------
 # Task Mixture (define your tasks here - task-agnostic design)
 # Modify this section to change what data is used for training
-# NOTE: Currently all samples in a batch must have images (or all must be text-only)
-#       Mixed batches are not supported yet due to pixel_values padding issues
+# Mixed batches (vision + text) are supported via masked_scatter
 train_ds = TaskMixture([
     OverfitSamples(data_dir=data_dir, split="train"),  # 10 vision samples
-    # SmolTalk(split="train", stop=10),  # TODO: fix mixed batch handling
+    SmolTalk(split="train", stop=10),  # 10 text samples - mixed batch support enabled
 ])
 val_ds = TaskMixture([
     OverfitSamples(data_dir=data_dir, split="val"),  # 10 vision samples
