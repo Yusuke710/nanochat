@@ -29,7 +29,7 @@ class VLMOverfit10(Task):
     Downloads once to cache, then loads by path for efficiency.
     """
 
-    def __init__(self, split="train", repo_id="USERNAME/vlm-overfit10", **kwargs):
+    def __init__(self, split="train", repo_id="Yusuke710/vlm-overfit10", **kwargs):
         super().__init__(**kwargs)
         # Download dataset to cache (images as files, not embedded in Parquet)
         # Single split only - overfit dataset uses train for everything
