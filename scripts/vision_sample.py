@@ -47,11 +47,21 @@ def evaluate_sample(model, tokenizer, image_token_id, sample, data_dir, device, 
         Image.open(Path(data_dir) / sample["image"]).convert("RGB"), base_size=1024
     ).unsqueeze(0).to(device)
 
-    # Tokenize and expand (strip legacy tokens like <|grounding|>)
+    # Special tokens for conversation structure (matching chat_cli.py)
+    bos = tokenizer.get_bos_token_id()
+    user_start = tokenizer.encode_special("<|user_start|>")
+    user_end = tokenizer.encode_special("<|user_end|>")
+    assistant_start = tokenizer.encode_special("<|assistant_start|>")
+    assistant_end = tokenizer.encode_special("<|assistant_end|>")
+
+    # Tokenize prompt with conversation structure
     prompt = sample["prompt"].replace("<|grounding|>", "").replace("<image>", "<|image|>")
-    prompt_ids = tokenizer.enc.encode(prompt, allowed_special={"<|image|>"})
+    prompt_content = tokenizer.enc.encode(prompt, allowed_special={"<|image|>"})
+    # Wrap: <bos><|user_start|>prompt<|user_end|><|assistant_start|>
+    prompt_ids = [bos, user_start] + list(prompt_content) + [user_end, assistant_start]
     expanded = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
-    answer_ids = tokenizer.encode(sample["answer"])
+    # Answer with <|assistant_end|> for accurate loss calculation
+    answer_ids = tokenizer.encode(sample["answer"]) + [assistant_end]
     prompt_len = len(expanded)
 
     # Compute loss
@@ -73,7 +83,7 @@ def evaluate_sample(model, tokenizer, image_token_id, sample, data_dir, device, 
             for token_column, _ in engine.generate(expanded, pixel_values=pixel_values,
                                                     max_tokens=512, temperature=0.0):
                 token = token_column[0]
-                if token == image_token_id:
+                if token == assistant_end:
                     break
                 gen_tokens.append(token)
         generated = tokenizer.decode(gen_tokens).strip()
