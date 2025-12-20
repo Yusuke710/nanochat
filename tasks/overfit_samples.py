@@ -40,15 +40,10 @@ class OverfitSamples(Task):
 
     def get_example(self, index):
         s = self.samples[index]
-        # Convert legacy format to conversation format
-        # Legacy: {"prompt": "...", "answer": "...", "image": "images/..."}
-        # Clean up prompt - remove legacy tokens like <|grounding|>
-        prompt = s["prompt"]
-        prompt = prompt.replace("<|grounding|>", "")  # remove legacy token
-
+        # Convert JSON format to conversation format for render_conversation()
         return {
             "messages": [
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": s["prompt"]},
                 {"role": "assistant", "content": s["answer"]}
             ],
             "image_path": os.path.join(self.data_dir, s["image"]),

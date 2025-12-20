@@ -55,7 +55,7 @@ def evaluate_sample(model, tokenizer, image_token_id, sample, data_dir, device, 
     assistant_end = tokenizer.encode_special("<|assistant_end|>")
 
     # Tokenize prompt with conversation structure
-    prompt = sample["prompt"].replace("<|grounding|>", "").replace("<image>", "<|image|>")
+    prompt = sample["prompt"].replace("<image>", "<|image|>")
     prompt_content = tokenizer.enc.encode(prompt, allowed_special={"<|image|>"})
     # Wrap: <bos><|user_start|>prompt<|user_end|><|assistant_start|>
     prompt_ids = [bos, user_start] + list(prompt_content) + [user_end, assistant_start]
