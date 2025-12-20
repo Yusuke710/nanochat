@@ -1,0 +1,102 @@
+[
+  {
+    "id": "gundam_doc_000",
+    "image": "images/gundam_doc_000.jpg",
+    "source": "DocVQA",
+    "type": "chart_parsing",
+    "resolution": "2257x1764",
+    "prompt": "<image>\nParse this figure completely.",
+    "answer": "FIGURE C.2.\n\nAGE ADJUSTED MOTOR VEHICLE ACCIDENT MORTALITY RATE\nCANADA\n\nY-axis: PER 1000 (values: 0.2, 0.22, 0.24, 0.26, 0.28, 0.3)\nX-axis: Years (1950, 1955, 1960, 1965, 1970, 1975, 1980)\n\nLegend:\n- ACTUAL (solid line)\n- MULTIVARIATE PREDICTOR (dotted line)\n\nData points (approximate):\n1956: 0.21 (actual), 0.21 (predicted)\n1958: 0.22 (actual), 0.225 (predicted)\n1960: 0.235 (actual), 0.24 (predicted)\n1962: 0.26 (actual), 0.255 (predicted)\n1965: 0.27 (actual), 0.275 (predicted)\n1967: 0.265 (actual), 0.27 (predicted)\n1970: 0.26 (actual), 0.265 (predicted)\n1972: 0.28 (actual), 0.28 (predicted)\n1973: 0.245 (actual), 0.265 (predicted)\n1975: 0.28 (actual), 0.275 (predicted)\n\nSource: https://www.industrydocuments.ucsf.edu/docs/pybv0228",
+    "saved_resolution": "2257x1764"
+  },
+  {
+    "id": "gundam_doc_001",
+    "image": "images/gundam_doc_001.jpg",
+    "source": "DocVQA",
+    "type": "document_ocr",
+    "resolution": "1701x2386",
+    "prompt": "<image>\n<|grounding|>OCR this document.",
+    "answer": "ITC Limited REPORT AND ACCOUNTS 2013\n\nITC's Brands: An Asset for the Nation\n\nThe consumer needs and aspirations they fulfil, the benefit they generate for millions across ITC's value chains, the future-ready capabilities that support them, and the value that they create for the country, have made ITC's brands national assets, adding to India's competitiveness.\n\nIt is ITC's aspiration to be the No 1 FMCG player in the country, driven by its new FMCG businesses. A recent Nielsen report has highlighted that ITC's new FMCG businesses are the fastest growing among the top consumer goods companies operating in India. ITC takes justifiable pride that, along with generating economic value, these celebrated Indian brands also drive the creation of larger societal capital through the virtuous cycle of sustainable and inclusive growth.\n\nBrands shown:\n- Aashirvaad (Atta)\n- Sunfeast (Multivitamin biscuits)\n- Fiama (body wash)\n- Vivel (soap)\n- Dark Fantasy (Choco Fills)\n- #BeYOUNG\n- Engage (deodorant)\n- Savlon\n- Set Wet (hair gel)\n- essenza di Wills\n- Bingo! (IRRESISTIBLE TASTES & COMBINATIONS IN SNACKING)\n- Classmate (notebooks)\n- Mangaldeep\n- Wills Lifestyle\n- Paperkraft\n- AIM (matches)\n\nSource: https://www.industrydocuments.ucsf.edu/docs/fnfxd0223",
+    "saved_resolution": "1701x2386"
+  },
+  {
+    "id": "gundam_doc_002",
+    "image": "images/gundam_doc_002.jpg",
+    "source": "DocVQA",
+    "type": "document_ocr",
+    "resolution": "1750x2270",
+    "prompt": "<image>\n<|grounding|>OCR this document.",
+    "answer": "THE ROBERT A. WELCH FOUNDATION\n2010 Bank of the Southwest Building\nHouston, Texas 77002\n\nBUDGET REQUEST SUMMARY\n\nYEAR (AS APPLICABLE)\nMay 1, 1966 through Apr. 30, 1967 | May 1, 19__ through Apr. 30, 19__ | May 1, 19__ through Apr. 30, 19__ | Total\n\n1. Personnel: $11,228.00 | $ | $ | $11,228.00\n2. Permanent Scientific Equipment: $ -0- | $ | $ | $ -0-\n3. Expendable Scientific Items & Services: $840.00 | $ | $ | $840.00\n4. Other Expense: $975.00 | $ | $ | $975.00\n5. TOTAL Exclusive of Overhead: $13,043.00 | $ | $ | $13,043.00\n6. Overhead: $1,957.00 | $ | $ | $1,957.00\n7. TOTAL AMOUNT of Proposed Budget: $15,000.00 | $ | $ | $15,000.00\n\nName(s) of Principal Investigator(s): John E. Kilpatrick\n\nInstitution: William Marsh Rice University\n\nTHE SPACE BELOW IS FOR USE BY THE FOUNDATION:\n\nGrant Period: _______, 19___ to _______, 19___ Grant No. ___\n\nDate\nApproved | Not Approved\nDirector of Research ___\nScientific Advisory Board ___\nBoard of Trustees ___\n\nGrantee and Institution Notified ___, 19___\n\nRemarks:\n\nSource: https://www.industrydocuments.ucsf.edu/docs/zxfk0226",
+    "saved_resolution": "1750x2270"
+  },
+  {
+    "id": "gundam_doc_003",
+    "image": "images/gundam_doc_003.jpg",
+    "source": "DocVQA",
+    "type": "document_ocr",
+    "resolution": "1653x2339",
+    "prompt": "<image>\n<|grounding|>OCR this document.",
+    "answer": "ITC Report and Accounts 2013\n\nReport on Corporate Governance\n\nAttendance at Nominations Committee Meetings during the financial year\n\nDirector | No. of meetings attended\nY. C. Deveshwar | 2\nA. Ruia | 2\nS. Banerjee | 2\nA. V. Girija Kumar | 2\nS. H. Khan | 2\nS. B. Mathur | 1\nD. K. Mehrotra | NI\nP. B. Ramanujam | 2\nS. K. Keshavan @ | NA\nM. Shankar @ | NA\nB. Vijayaraghavan | 2\n\n@ Appointed Member w.e.f. 18th January, 2013\n\nV. SUSTAINABILITY COMMITTEE\n\nThe role of the Sustainability Committee is to review, monitor and provide strategic direction to the Company's sustainability practices towards fulfilling its triple bottom line objectives. The Committee seeks to guide the Company in integrating its social and environmental objectives with its business strategies.\n\nComposition\n\nThe Sustainability Committee presently comprises the Chairman of the Company and six Non-Executive Directors, four of whom are Independent Directors. The Chairman of the Chairman of the Committee.\n\nThe names of the members of the Sustainability Committee, including its Chairman, are provided under the section 'Board of Directors and Committees' in the Report and Accounts.\n\nMeetings and Attendance\n\nDuring the financial year ended 31st March, 2013, three meetings of the Sustainability Committee were held, as follows:\n\nSl. No. | Date | Committee Strength | No. of Members present\n1 | 9th April, 2012 | 6 | 6\n2 | 24th May, 2012 | 6 | 6\n3 | 26th March, 2013 | 7 | 7\n\nAttendance at Sustainability Committee Meetings during the financial year\n\nDirector | No. of meetings attended\nY. C. Deveshwar | 3\nS. Banerjee | 3\nH. G. Powell | 3\nA. Ruia | 3\nB. Sen | 3\nM. Shankar @ | 1\nB. Vijayaraghavan | 3\n\n@ Appointed Member w.e.f. 18th January, 2013\n\nCORPORATE MANAGEMENT COMMITTEE\n\nThe primary role of the Corporate Management Committee is strategic management of the Company's businesses within Board approved direction / framework.\n\nComposition\n\nThe Corporate Management Committee presently comprises all the Executive Directors and six senior members of management. The Chairman of the Company is the Chairman of the Committee. The composition of the Corporate Management Committee is determined by the Board based on the recommendation of the Nominations Committee.\n\n\"The structure, processes and practices of governance are designed to support effective management of multiple businesses while retaining focus on each one of them.\"\n\n22 | ITC Report and Accounts 2013\n\nSource: https://www.industrydocuments.ucsf.edu/docs/snbx0223",
+    "saved_resolution": "1653x2339"
+  },
+  {
+    "id": "gundam_chart_000",
+    "image": "images/gundam_chart_000.png",
+    "source": "ChartQA",
+    "type": "chart_parsing",
+    "resolution": "2290x3000 (upscaled from (620, 812))",
+    "prompt": "<image>\nParse this chart in detail.",
+    "answer": "Title: Republican support for increased defense spending from Europe has waned since 2017\n\nSubtitle: % of ___ who say American allies in Europe should increase their spending on national defense\n\nChart type: Line chart with two series\n\nY-axis: 0 to 100%\nX-axis: 2017, 2018, 2019\n\nData series:\n\nRepublican/Lean Rep (red line):\n- 2017: 62%\n- 2018: 59%\n- 2019: 48%\n\nDemocrat/Lean Dem (blue line):\n- 2017: 34%\n- 2018: 27%\n- 2019: 28%\n\nSource: Pew Research Center survey conducted in the U.S. Sept. 17-22, 2019. Q3.\n\"Americans and Germans Differ in Their Views of Each Other and the World\"\n\nPEW RESEARCH CENTER",
+    "saved_resolution": "2290x3000"
+  },
+  {
+    "id": "gundam_chart_001",
+    "image": "images/gundam_chart_001.png",
+    "source": "ChartQA",
+    "type": "chart_parsing",
+    "resolution": "1995x3000 (upscaled from (620, 932))",
+    "prompt": "<image>\nParse this chart in detail.",
+    "answer": "Title: U.S. Hispanic population reached nearly 61 million in 2019\n\nSubtitle: In millions\n\nChart type: Line chart showing population growth over time\n\nX-axis: Years (1970, 1980, 1990, 2000, 2010, 2019)\n\nData points:\n- 1970: 9.6 million\n- 1980: 14.5 million\n- 1990: 22.6 million\n- 2000: 35.7 million\n- 2010: 50.7 million\n- 2019: 60.6 million\n\nNote: Population estimates for 1990-2019 are as of July 1 for each year. Hispanics are of any race.\n\nSource: Pew Research Center analysis of 1970-1980 estimates based on decennial censuses (see 2008 report \"U.S. Population Projections: 2005-2050\"), U.S. intercensal population estimates for 1990-1999 and 2000-2009, and U.S. Census Bureau Vintage 2019 estimates for 2010-2019.\n\nPEW RESEARCH CENTER",
+    "saved_resolution": "1995x3000"
+  },
+  {
+    "id": "gundam_chart_002",
+    "image": "images/gundam_chart_002.png",
+    "source": "ChartQA",
+    "type": "chart_parsing",
+    "resolution": "3000x1772 (upscaled from (858, 507))",
+    "prompt": "<image>\nParse this chart in detail.",
+    "answer": "Title: Country Programmable Aid (CPA)\nSubtitle: Total, Million US dollars, 2010 - 2014\n\nSource: Country Programmable Aid (CPA)\n\nChart type: Multi-line chart showing aid trends for multiple countries\n\nY-axis: Million US dollars (0, 20, 40, 60, 80, 100, 120, 140)\nX-axis: Years (2010, 2011, 2012, 2013, 2014)\n\nCountries and data:\n\nIsrael (purple line - highest values):\n- 2010: ~147\n- 2011: ~102\n- 2012: ~112\n- 2013: ~122\n- 2014: ~112\n\nLithuania (red/orange line - middle values):\n- 2010: ~17\n- 2011: ~16\n- 2012: ~14\n- 2013: ~7\n- 2014: ~6\n\nMalta (green line - lowest values):\n- 2010: ~10\n- 2011: ~6\n- 2012: ~4\n- 2013: ~3\n- 2014: ~4",
+    "saved_resolution": "3000x1772"
+  },
+  {
+    "id": "gundam_infographic_000",
+    "image": "images/gundam_infographic_000.jpg",
+    "source": "InfographicVQA",
+    "type": "infographic_ocr",
+    "resolution": "969x2221",
+    "prompt": "<image>\n<|grounding|>OCR this infographic.",
+    "answer": "Social Media Platform Cheat Sheet\n\n[Pinterest logo]\nPinterest\n\nKey differentiating trait:\nMore of a niche platform, despite very large usage. Great for businesses that involve planning, design, creation, making. Heavily female audience.\n\nBest for:\nLink clicks\n\nResource and expertise level needed:\nHigh\n\nGood for these business types:\nRestaurants | Interior design | Wedding venues\n\n---\n\n[Twitter logo]\nTwitter\n\nKey differentiating trait:\nFast-moving, real-time, news-driven platform. Strong customer service element, be prepared to engage and respond to customers here.\n\nBest for:\nLink clicks, engagement, and foot traffic\n\nResource and expertise level needed:\nLow\n\nGood for these business types:\nRetail | Nonprofits | Newspapers & media outlets\n\n---\n\n[LinkedIn logo]\nLinkedIn\n\nKey differentiating trait:\nUnlike almost every other platform, which is designed for the user to focus on their personal interests, this is a profession-driven platform.\n\nBest for:\nLink clicks, event registrations\n\nResource and expertise level needed:\nMedium\n\nGood for these business types:\nLuxury goods & services | Software providers | B2B Companies\n\n---\n\n[Instagram logo]\nInstagram\n\nKey differentiating trait:\nThere are very few ways to link from Instagram, so this is a brand-building platform. You need to have lots of high-quality images and videos to support this platform.\n\nBest for:\nFoot traffic, word-of-mouth awareness, engagement\n\nResource and expertise level needed:\nMedium to high\n\nGood for these business types:\nBakeries & Coffee Shops | Travel agencies | Art museums\n\n---\n\n[Facebook logo]\nFacebook\n\nKey differentiating trait:\nThis is the platform, but it doesn't mean you need to be there. With the recent challenges the platform has faced, some users are choosing to spend their social media time elsewhere (like Instagram, which is also a Facebook platform). That being said, there's still no better place to find and engage customers, donors, or others.\n\nBest for:\nLink clicks, word-of-mouth awareness, event registrations\n\nResource and expertise level needed:\nLow\n\nGood for these business types:\nLocal Brick & Mortar Stores | Nonprofits | B2B Companies\n\nConstant Contact",
+    "saved_resolution": "969x2221"
+  },
+  {
+    "id": "gundam_infographic_001",
+    "image": "images/gundam_infographic_001.jpg",
+    "source": "InfographicVQA",
+    "type": "infographic_ocr",
+    "resolution": "1200x7237",
+    "prompt": "<image>\n<|grounding|>OCR this infographic.",
+    "answer": "THE HISTORY of social media\n\n[Icons shown: Friendster, Wordpress, Tumblr, LinkedIn, Facebook, Twitter, YouTube, Instagram]\n\nSocial media channels seem to be everywhere and with 135 minutes of our time spent on social media platforms every day, it's crazy to think that it's only been 20 years since the first social media site was made. Without any further ado, here we have the history of social media!\n\nTHE BEGINNING - 1844\nSamuel Morse made the first step towards some resemblance of social media when he sent a telegram from Washington D.C. to Baltimore. Morse's first message read \"What Hath God Wrought?\"\n\nMILITARY'S FIRST SOCIAL MEDIA ATTEMPT - 1969\nARPA (Advanced Research Projects Agency Network) wanted to connect Universities on a proto-internet. It worked great...if you worked in the military. Unfortunately, the letters 'U' weren't the complete 'LOGIN' that they had planned to send over.\n\nSTART OF SOCIAL SITES - 1997\nFrom 1997 to 2001, Six Degrees had a peak of about 1 million members who were able to create profiles and 'friend' each other.\n\nCREATIVITY AND STATUS BLOGS - 1999\nLiveJournal was a platform where users could blog as a form of keeping friends updated with their lives. A format later used by Facebook for their 'status'.\n\nA CHALLENGER EMERGES - 2002\nFriendster, one of the first social media sites, is created and launched by Peter Chin, Jonathan Abrams, and Dave Lee. Within the first three months, Friendster had three million users and turned down a $30 million buyout from Google, widely considered one of the biggest blunders of Silicon Valley.\n\nLINK UP WITH BUSINESSES - 2003\nLinkedIn gives users a place to post their resume and private message people with a paid feature. LinkedIn is still a popular way for businesses to scout for new employees and for users to search for jobs. By 2007, the social network for jobs would reach 1 million. 13 years later they would break 500 million users.\n\nGMAIL RECEIVED - 2004\nGoogle enters the communications space, Gmail. In the UK Gmail was branded as Google Mail due to naming disputes. This lasted until 2009 when they changed the branding back after the dispute was over.\n\nFACEBOOK BEGINS - 2004\nIn February 2004, Facebook was launched by Mark Zuckerberg, along with his Harvard roommates. The site was initially limited to Harvard students then was expanded to other universities and over years, this membership would be worldwide and number of users grew to around 2.2 billion in 14 years.\n\nBIRTH OF YOUTUBE - 2005\nYouTube, a platform on which users can upload and share videos, was made public in February 2005. The first video to hit 1m million views also came within this year thanks to a Nike advert featuring Ronaldinho.\n\nFacebook is now made available in the UK, Ireland, Canada, Australia and New Zealand on October 1st.\n\nMYSPACE IS BOOMING - 2006\nMyspace became the most popular social network in the US during 2006! That's just 3 years after it was founded.\n\nTwitter is launched publically on July 15th.\n\n750 TWEETS PER SECOND! - 2010\n65 million tweets a day are being sent out on Twitter, that's around 750 tweets every second.\n\nLAUNCH OF SNAPCHAT - 2013\nSnapchat, an image messaging app, is launched in September after being tested as 'Picaboo' in July 2011. One of the founding members is pushed out before Snapchat is released.\n\nSHORT VIDEOS, MEGA VIEWS - 2013\nVine, a video hosting service specializing in short videos, goes public in June. Twitter acquires Vine for $30 million in the October of that year.\n\nUK'S INSTA ADS - 2014\nInstagram brings sponsored Ads to target the UK in September following their inclusion on the app in America.\n\nLIFE OF A STARMAN - 2015\nNASA's #YearInSpace hashtag, giving Twitter followers updates on Scott Kelly an astronaut who lived in space for a year!\n\nVR AND FAKE NEWS - 2018\nVirtual Reality, live videos, and 360-degree videos replace all video content on social media as the 'new' form of social media. There was a crackdown on fake news throughout social media platforms like Facebook and Twitter.\n\nAfter all of this, we now have a beautiful array of social media channels to pick and choose from. Facebook, Instagram, Twitter, Snapchat and more. We wonder what next advancement social media creators will think up, what do you think will happen in the future world of social media?\n\nwww.redgiraffe.uk",
+    "saved_resolution": "1200x7237"
+  },
+  {
+    "id": "gundam_infographic_002",
+    "image": "images/gundam_infographic_002.jpg",
+    "source": "InfographicVQA",
+    "type": "infographic_ocr",
+    "resolution": "816x8256",
+    "prompt": "<image>\n<|grounding|>OCR this infographic.",
+    "answer": "Social Media Security\n\nThe explosion of Facebook and social media has created a whole new set of security problems.\n\nSocial Media Growth\nGrowth in Social Media Users 2008-2013\n\nFacebook: Over 200,000,000 Facebook account grew from 100 million in 2008 to 1.1 billion by 2013\nTwitter: 200 million - Twitter jumped to 200 million users in 2013\nInstagram: From 2010-2013 Instagram amassed 150 million users\nPinterest: 2010-2013: Pinterest went from 0 to 70 million users\nLinkedIn: LinkedIn has grown to over 200 million users\n\nIn One Internet Minute...\n00:00:00\n\n[Clock showing: 00:45:00 - LinkedIn: 100 job applications; 00:15:00 - Twitter: 100,000 new tweets]\n\n00:30:00\n\nWarning Signs\nNo Account is Safe!\n\n6 million - LinkedIn passwords compromised\n500 Thousand - Scribd passwords stolen\n450 Thousand - Yahoo passwords compromised\n\nData Breaches\nIn 2012 - 2013\n\nFake Profiles, Social Trust Exploitation, Short URLs and other ways we're being taken advantage of on Social Media.\n\n7.2 % of Social Media Profiles were Fake in Q1 2013!\n- Duplicate accounts\n- Spammer profiles\n- Profiles created by other automated programs to send spam\n\nThe Facebook Dislike Button Scam\nAll of these scams offered to add a new Dislike Button feature to the user's account. Instead, it attempted Install malware.\n\n84% of malicious links submitted by Sophos researchers in the U.S. & UK, of redirecting sites were accepted\n\nTRANSFORMATION RATE: VIRUS-DOWNLOADER → SAFE HITS\n\nWe're Part of the Problem\n\nNot Properly Using or Under-Utilizing Social Media Privacy Settings\n\n10% of Social Media users claim that at some point they have had their identity hacked\n30% of Social Media users use NO PRIVACY controls on their profiles at all\n39% of Social Media users post updates and profiles on company or employer\n\nOversharing, Annoying to Friends: A Treasure Trove for Identity Thieves.\n\nMy name is RICHARD SMITH\nI was born MAY 6, 1984\nI live at 3205 STEALMY IDENTITY ST.\nMY BEST FRIEND'S name is HI AND I'M A STRANGER?\n\nThe damage that can be done with just TWO pieces of information is incredible.\n\nSharing Malicious Links\nJaylee Chan & David Frost - One Example of a Malicious Facebook Story Link evolution:\n\n\"I'm Floored!\" → 1 Friend → 1 post → 4 minutes → Android Apps\n\nOwn Your Digital Identity\n\nHow to Protect Yourself When Using Social Media\n\nCreate one and one longer passwords with numbers, upper/lower case letters, and special characters. Passwords can be the only key to your key!\n\nUse a reliable and secure anti-virus across all of your computers and web connected devices.\n\nBackup your most important information. If the worst happens you can restore your data it you have a backup. However, the data only stays safe if the virus doesn't steal on your computer as well.\n\nWe build WEBSITES and APPS for THE BEST BRANDS",
+    "saved_resolution": "816x8256"
+  }
+]
