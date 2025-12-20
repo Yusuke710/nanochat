@@ -467,3 +467,44 @@ The MFU difference is disproportionate because:
 3. **Different compute patterns**: Spatial attention scales O((H×W)²) which is worse than causal text attention for backward pass.
 
 **Conclusion**: While SAM is only 10% of parameters, freezing it eliminates a disproportionate amount of compute cost, resulting in ~4x speedup.
+
+## Two-Stage Training Results (2024-12-20)
+
+### Configuration
+- **Stage 1**: 500 steps, batch_size=4, lr=5e-5
+- **Stage 2**: 1000 steps, batch_size=4, lr=3e-5
+- **GPU**: Single GPU training
+
+### Stage 1 Results (vis_tok_train.py)
+- All parameters trainable (SAM, CLIP, projector, GPT)
+- Initial loss: ~6.9
+- Final val loss: 0.0009
+- Saved: `deepencoder_500.pt` for Stage 2
+
+### Stage 2 Results (vis_mid_train.py)
+- SAM frozen, trains CLIP + projector + fresh GPT
+- Loaded DeepEncoder from Stage 1 + fresh nanochat GPT from HuggingFace
+- Initial loss: ~5.5
+- Final val loss: ~0.02
+
+### Inference Results (vision_sample.py with step_1000.pt)
+
+```
+ID                  Loss  Overlap
+========================================
+receipt_000       0.0030    100%  ✓
+receipt_001       0.0145    100%  ✓
+receipt_002       0.0072    100%  ✓
+receipt_003       0.0060    100%  ✓
+chart_01          0.0003    100%  ✓
+chart_02          0.0004    100%  ✓
+chart_03          0.0004    100%  ✓
+textvqa_01        0.0004    100%  ✓
+textvqa_02        0.0004    100%  ✓
+textvqa_03        0.0004    100%  ✓
+========================================
+Avg loss: 0.0033
+Avg overlap: 100.0%
+```
+
+**Key Achievement**: All 10 samples achieved **100% word overlap** with very low loss (0.0033 average). The two-stage training pipeline successfully overfits the model to the training samples while maintaining proper vision encoding.
