@@ -5,10 +5,10 @@ One tokenizer, one loader for all modalities. Change TaskMixture contents, not t
 
 Usage:
     # Stage 1: vision only
-    train_ds = TaskMixture([OverfitSamples(data_dir="data")])
+    train_ds = TaskMixture([VLMOverfit10()])
 
     # Stage 2: vision + text
-    train_ds = TaskMixture([OverfitSamples(...), SmolTalk(...)])
+    train_ds = TaskMixture([VLMOverfit10(), SmolTalk(...)])
 
     # Same loader for both - returns DataLoader iterator
     train_loader = create_multimodal_loader(train_ds, tokenizer, B, T, base_size)

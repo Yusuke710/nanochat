@@ -8,7 +8,6 @@ Usage:
 
 import argparse
 import json
-import time
 from pathlib import Path
 
 import torch
@@ -19,6 +18,7 @@ from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
 from nanochat.engine import Engine
+from tasks.vlm_overfit10 import VLMOverfit10
 
 GREEN, YELLOW, RED, BOLD, END = '\033[92m', '\033[93m', '\033[91m', '\033[1m', '\033[0m'
 
@@ -38,13 +38,13 @@ def load_model(checkpoint_path):
     return model.eval().to(device), tokenizer, image_token_id, device
 
 
-def evaluate_sample(model, tokenizer, image_token_id, sample, data_dir, device, generate=True):
+def evaluate_sample(model, tokenizer, image_token_id, sample, device, generate=True):
     """Evaluate single sample: compute loss and optionally generate."""
     n_img_tokens = count_vision_tokens(base_size=1024)
 
-    # Process image
+    # Process image from path
     pixel_values = process_image(
-        Image.open(Path(data_dir) / sample["image"]).convert("RGB"), base_size=1024
+        Image.open(sample["image_path"]).convert("RGB"), base_size=1024
     ).unsqueeze(0).to(device)
 
     # Special tokens for conversation structure (matching chat_cli.py)
@@ -95,9 +95,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str)
     parser.add_argument("--step", type=int)
-    parser.add_argument("--data-dir", type=str, default="data/overfit_samples")
-    parser.add_argument("--dataset", type=str, default="val.json", help="Dataset file (default: val.json)")
     parser.add_argument("--loss-only", action="store_true")
+    parser.add_argument("--output-dir", type=str, default="results", help="Output directory for results")
     args = parser.parse_args()
 
     # Checkpoint path
@@ -113,41 +112,47 @@ def main():
         return
 
     step_num = Path(ckpt).stem.split("_")[-1]
-    output_path = f"{args.data_dir}/inference_results_step{step_num}.json"
+    Path(args.output_dir).mkdir(exist_ok=True)
+    output_path = f"{args.output_dir}/inference_results_step{step_num}.json"
 
-    # Load dataset (val.json by default, or specify with --dataset)
-    dataset_path = f"{args.data_dir}/{args.dataset}"
-    with open(dataset_path, encoding="utf-8") as f:
-        samples = json.load(f)
+    # Load dataset from HuggingFace
+    print("Loading VLMOverfit10 dataset from HuggingFace...")
+    dataset = VLMOverfit10()
+    samples = [dataset.get_example(i) for i in range(dataset.num_examples())]
     print(f"Loading {ckpt}")
     model, tokenizer, image_token_id, device = load_model(ckpt)
 
     # Evaluate
     results, total_loss = [], 0.0
-    print(f"\n{'ID':<15} {'Loss':>8} {'Overlap':>8}")
-    print("=" * 40)
+    print(f"\n{'#':<4} {'Loss':>8} {'Overlap':>8}")
+    print("=" * 30)
 
-    for sample in samples:
+    for i, sample in enumerate(samples):
+        # Extract prompt and answer from conversation format
+        prompt = sample["messages"][0]["content"]
+        answer = sample["messages"][1]["content"]
+        eval_sample = {"prompt": prompt, "answer": answer, "image_path": sample["image_path"]}
+
         loss, generated = evaluate_sample(
-            model, tokenizer, image_token_id, sample, args.data_dir, device, not args.loss_only
+            model, tokenizer, image_token_id, eval_sample, device, not args.loss_only
         )
         total_loss += loss
 
-        exp_words = set(sample["answer"].lower().split())
+        exp_words = set(answer.lower().split())
         gen_words = set(generated.lower().split()) if generated else set()
         overlap = len(exp_words & gen_words) / max(len(exp_words), 1)
 
         status = GREEN + "✓" if loss < 0.1 else (YELLOW + "~" if overlap > 0.8 else RED + "✗")
-        print(f"{sample['id']:<15} {loss:>8.4f} {overlap:>7.0%}  {status}{END}")
+        print(f"{i:<4} {loss:>8.4f} {overlap:>7.0%}  {status}{END}")
 
         results.append({
-            "id": sample["id"], "type": sample["type"],
-            "expected": sample["answer"], "generated": generated,
+            "index": i,
+            "expected": answer, "generated": generated,
             "loss": round(loss, 6), "word_overlap": round(overlap, 3),
         })
 
     # Summary
-    print("=" * 40)
+    print("=" * 30)
     print(f"{BOLD}Avg loss: {total_loss/len(samples):.4f}{END}")
     if not args.loss_only:
         print(f"Avg overlap: {sum(r['word_overlap'] for r in results)/len(results):.1%}")

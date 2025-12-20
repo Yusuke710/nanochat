@@ -36,15 +36,13 @@ from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
-from tasks.overfit_samples import OverfitSamples
+from tasks.vlm_overfit10 import VLMOverfit10
 from tasks.smoltalk import SmolTalk
 from tasks.common import TaskMixture
 
 # -----------------------------------------------------------------------------
 # User settings (overridable via CLI)
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
-# Data
-data_dir = "data/overfit_samples"  # directory containing train.json, val.json, images/
 # Model
 base_size = 1024  # image resolution
 seq_len = 8192  # longer sequences for stage 2
@@ -211,16 +209,18 @@ def get_lr(step):
 # Modify this section to change what data is used for training
 # Mixed batches (vision + text) are supported via masked_scatter
 train_ds = TaskMixture([
-    OverfitSamples(data_dir=data_dir, split="train"),  # 10 vision samples
+    VLMOverfit10(),  # 10 vision samples from HuggingFace
     SmolTalk(split="train", stop=10),  # 10 text samples - mixed batch support enabled
 ])
 val_ds = TaskMixture([
-    OverfitSamples(data_dir=data_dir, split="val"),  # 10 vision samples
+    VLMOverfit10(),  # same data - overfit validation
 ])
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
-print0(f"Loading data from {data_dir}/")
+train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
+val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
+print0(f"Train tasks: {train_task_names}, Val tasks: {val_task_names}")
 print0(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
 
 train_loader = create_multimodal_loader(train_ds, tokenizer, batch_size, seq_len, base_size)

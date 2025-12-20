@@ -4,7 +4,6 @@ Vision Token Training - Train vision encoder with LLM on vision data.
 Usage:
     python -m scripts.vis_tok_train                     # Train with defaults
     python -m scripts.vis_tok_train --steps=500         # Custom steps
-    python -m scripts.vis_tok_train --data_dir=mydata   # Custom data
 
 Distributed:
     torchrun --nproc_per_node=8 -m scripts.vis_tok_train
@@ -27,15 +26,13 @@ from nanochat.deepencoder.load_pretrained import (
 )
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
-from tasks.overfit_samples import OverfitSamples
+from tasks.vlm_overfit10 import VLMOverfit10
 from tasks.common import TaskMixture
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
 
 # -----------------------------------------------------------------------------
 # User settings (overridable via CLI)
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
-# Data
-data_dir = "data/overfit_samples"  # directory containing train.json, val.json, images/
 # Model
 base_size = 1024  # image resolution
 seq_len = 4096  # sequence length
@@ -167,9 +164,11 @@ def get_lr(step):
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
-print0(f"Loading data from {data_dir}/")
-train_ds = TaskMixture([OverfitSamples(data_dir=data_dir, split="train")])
-val_ds = TaskMixture([OverfitSamples(data_dir=data_dir, split="val")])
+train_ds = TaskMixture([VLMOverfit10()])  # defaults to split="train"
+val_ds = TaskMixture([VLMOverfit10()])    # same data - overfit validation
+train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
+val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
+print0(f"Train tasks: {train_task_names}, Val tasks: {val_task_names}")
 print0(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
 
 train_loader = create_multimodal_loader(train_ds, tokenizer, batch_size, seq_len, base_size)
