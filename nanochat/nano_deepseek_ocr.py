@@ -223,6 +223,18 @@ class NanoDeepseekOCR(nn.Module):
             if has_images.sum() < B:
                 image_mask = image_mask & has_images.unsqueeze(1)
 
+            # Validate: expanded <|image|> tokens must match vision encoder output
+            n_image_tokens = image_mask.sum().item()
+            n_vision_tokens = vision_embeds.shape[0] * vision_embeds.shape[1]
+            if n_image_tokens != n_vision_tokens:
+                n_images = vision_embeds.shape[0]
+                tokens_per_image = vision_embeds.shape[1]
+                raise ValueError(
+                    f"Token mismatch: input_ids has {n_image_tokens} <|image|> tokens, "
+                    f"but got {n_vision_tokens} vision tokens ({n_images} images × {tokens_per_image} tokens/image). "
+                    f"Check expand_image_tokens() in dataloader."
+                )
+
             # Use masked_scatter (PyTorch-native, like HuggingFace LLaVA)
             scatter_mask = image_mask.unsqueeze(-1).expand_as(text_embeds)
             text_embeds = text_embeds.masked_scatter(scatter_mask, flat_vision.to(text_embeds.dtype))
