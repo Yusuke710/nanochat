@@ -3,12 +3,20 @@ Unified multimodal dataloader with PyTorch DataLoader for high MFU.
 
 One tokenizer, one loader for all modalities. Change TaskMixture contents, not the code.
 
+Supports two image formats:
+  - image_path: str path to image file (VLMOverfit10, local datasets)
+  - images: list of PIL.Image (FineVision datasets)
+
 Usage:
-    # Stage 1: vision only
+    # Stage 1: vision only (local or FineVision)
     train_ds = TaskMixture([VLMOverfit10()])
+    train_ds = TaskMixture([FineVision("DoclingMatix", max_samples=100_000)])
 
     # Stage 2: vision + text
-    train_ds = TaskMixture([VLMOverfit10(), SmolTalk(...)])
+    train_ds = TaskMixture([
+        FineVision("SynthChartNet", max_samples=300_000),
+        SmolTalk(...),
+    ])
 
     # Same loader for both - returns DataLoader iterator
     train_loader = create_multimodal_loader(train_ds, tokenizer, B, T, base_size)
@@ -43,9 +51,14 @@ class MultimodalDataset(Dataset):
         # Tokenize using render_conversation (handles media placeholders)
         ids, _ = self.tokenizer.render_conversation(sample, max_tokens=16384)
 
-        # Handle image if present
+        # Handle image if present (supports both image_path and images)
         pixel_values = None
-        if "image_path" in sample and sample["image_path"]:
+        if "images" in sample and sample["images"]:
+            # FineVision format: PIL images directly in list
+            ids = expand_image_tokens(ids, self.image_token_id, self.n_img_tokens)
+            pixel_values = process_image(sample["images"][0], self.base_size)
+        elif "image_path" in sample and sample["image_path"]:
+            # Local file format: load from path
             ids = expand_image_tokens(ids, self.image_token_id, self.n_img_tokens)
             pixel_values = process_image(Image.open(sample["image_path"]), self.base_size)
 
