@@ -28,7 +28,8 @@ from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from tasks.finevision import FineVision
 from tasks.common import TaskMixture
-from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
+from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb
+import wandb
 
 # -----------------------------------------------------------------------------
 # User settings (overridable via CLI)
@@ -67,6 +68,10 @@ autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16)
 synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 
 print0(f"Device: {device}, DDP world size: {ddp_world_size}")
+
+# wandb logging init
+use_dummy_wandb = run == "dummy" or not master_process
+wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nano-deepseek-ocr", name=run, config=user_config)
 
 # -----------------------------------------------------------------------------
 # Load tokenizer
@@ -226,6 +231,7 @@ for step in range(start_step, steps):
         if val_loss_avg < min_val_loss:
             min_val_loss = val_loss_avg
         print0(f"Step {step:05d} | Validation loss: {val_loss_avg:.4f} | min: {min_val_loss:.4f}")
+        wandb_run.log({"step": step, "val/loss": val_loss_avg})
         model.train()
 
     # -------------------------------------------------------------------------
@@ -283,6 +289,16 @@ for step in range(start_step, steps):
     pct_done = 100 * (step + 1) / steps
     print0(f"step {step:05d}/{steps} ({pct_done:05.2f}%) | loss: {debiased_loss:.4f} | lr: {current_lr:.2e} | "
            f"dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | total time: {total_training_time/60:.2f}m")
+    total_training_flops = num_flops_per_token * tokens_per_batch * (step + 1)
+    wandb_run.log({
+        "step": step,
+        "train/loss": debiased_loss,
+        "train/lr": current_lr,
+        "train/dt": dt,
+        "train/tok_per_sec": tok_per_sec,
+        "train/mfu": mfu,
+        "train/total_flops": total_training_flops,
+    })
 
     # -------------------------------------------------------------------------
     # Checkpointing (master only)
@@ -315,4 +331,5 @@ print0(f"Minimum val loss: {min_val_loss:.4f}")
 if min_val_loss < 0.1:
     print0("SUCCESS: Training converged!")
 
+wandb_run.finish()
 compute_cleanup()

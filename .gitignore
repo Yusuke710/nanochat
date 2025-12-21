@@ -8,3 +8,5 @@ eval_bundle/
 
 .env
 tokenizer/
+wandb/
+checkpoints/

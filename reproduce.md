@@ -313,3 +313,115 @@ uv run python -m nanochat.dataset -n 2 -w 2
 | Stage 2, batch=1, seq=8192 | OOM | Use seq=2048 |
 | Stage 2, batch=1, seq=2048 | ~20GB | 24GB GPU OK |
 | Stage 2, batch=1, seq=4096 | ~22GB | 24GB GPU tight |
+
+---
+
+## FineVision Training with WandB (A100 80GB)
+
+Training commands for FineVision dataset (chartqa) with WandB logging on A100 80GB.
+
+### Setup Environment Variables
+
+```bash
+# Export .env variables for WandB and HuggingFace
+set -a && source .env && set +a
+```
+
+### Stage 1: Vision Token Training (1000 steps)
+
+```bash
+source .venv/bin/activate && set -a && source .env && set +a && \
+python -m scripts.vis_tok_train \
+    --run=stage1-1000steps \
+    --steps=1000 \
+    --batch_size=10 \
+    --eval_every=50 \
+    --save_every=100
+```
+
+**Config:**
+- Dataset: FineVision/chartqa (18K train, 100 val)
+- batch_size=10, seq_len=4096
+- lr=5e-5 with cosine annealing
+- All components trained: SAM, CLIP, projector, GPT
+
+**Expected results:**
+- Min val loss: ~1.45 at step 850
+- Time: ~13 minutes
+- Output: `checkpoints/deepencoder_1000.pt`
+
+### Stage 2: Vision Mid Training (1500 steps)
+
+```bash
+source .venv/bin/activate && set -a && source .env && set +a && \
+python -m scripts.vis_mid_train \
+    --run=stage2-1500steps \
+    --steps=1500 \
+    --batch_size=2 \
+    --eval_every=100 \
+    --resume_from_deepencoder=checkpoints/deepencoder_1000.pt
+```
+
+**Config:**
+- Dataset: FineVision/chartqa + SmolTalk (mixed vision + text)
+- batch_size=2 (batch_size=4 causes OOM with seq_len=8192)
+- seq_len=8192
+- lr=3e-5 with StepLR decay
+- SAM frozen, trains CLIP + projector + fresh GPT
+
+**Expected results:**
+- Min val loss: ~2.16 at step 1400
+- Time: ~5 minutes
+- Output: `checkpoints/step_1500.pt`
+
+### WandB Logging
+
+Both scripts log to project `nano-deepseek-ocr`:
+- Metrics: train/loss, train/lr, train/dt, train/tok_per_sec, train/mfu, train/total_flops, val/loss
+- Set `--run=dummy` to disable WandB logging
+
+### Memory Notes (A100 80GB)
+
+| Stage | batch_size | seq_len | Status |
+|-------|------------|---------|--------|
+| 1 | 10 | 4096 | OK |
+| 2 | 4 | 8192 | OOM |
+| 2 | 2 | 8192 | OK |
+
+### Upload Models to HuggingFace
+
+Upload trained checkpoints to HuggingFace (private repos). Running again will update/overwrite.
+
+**nano-deepencoder** (Stage 1 encoder-only checkpoint):
+```bash
+source .venv/bin/activate && set -a && source .env && set +a && python -c "
+from huggingface_hub import HfApi
+api = HfApi()
+repo_id = 'Yusuke710/nano-deepencoder'
+api.create_repo(repo_id, repo_type='model', exist_ok=True, private=True)
+api.upload_file(
+    path_or_fileobj='checkpoints/deepencoder_1000.pt',
+    path_in_repo='deepencoder.pt',
+    repo_id=repo_id,
+    repo_type='model',
+)
+print(f'Uploaded to https://huggingface.co/{repo_id}')
+"
+```
+
+**nano-deepseek-ocr** (Stage 2 full model):
+```bash
+source .venv/bin/activate && set -a && source .env && set +a && python -c "
+from huggingface_hub import HfApi
+api = HfApi()
+repo_id = 'Yusuke710/nano-deepseek-ocr'
+api.create_repo(repo_id, repo_type='model', exist_ok=True, private=True)
+api.upload_file(
+    path_or_fileobj='checkpoints/step_1500.pt',
+    path_in_repo='model.pt',
+    repo_id=repo_id,
+    repo_type='model',
+)
+print(f'Uploaded to https://huggingface.co/{repo_id}')
+"
+```
