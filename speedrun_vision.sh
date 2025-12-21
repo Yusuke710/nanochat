@@ -85,7 +85,7 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_mid_train 
     --run=${WANDB_RUN}_stage2
 
 # -----------------------------------------------------------------------------
-# Evaluation on OCR benchmarks
+# Evaluation on Full OCR benchmarks
 
 echo "=============================================="
 echo "Evaluating on Fox benchmark"
