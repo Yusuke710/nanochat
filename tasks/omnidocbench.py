@@ -28,9 +28,11 @@ class OmniDocBench(Task):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        print("Loading OmniDocBench dataset...")
-        self.ds = load_dataset("opendatalab/OmniDocBench", split="train")
-        print(f"  Ready: {len(self.ds)} samples")
+        self.ds = load_dataset("opendatalab/OmniDocBench", split="train").shuffle(seed=42)
+
+    @property
+    def eval_type(self):
+        return 'generative'
 
     def num_examples(self):
         return len(self.ds)
@@ -66,13 +68,13 @@ class OmniDocBench(Task):
                 {"role": "assistant", "content": gt_text}
             ],
             "images": [image] if image else [],
-            "metadata": {
-                "page_no": page_info.get("page_no", 0),
-                "data_source": page_attr.get("data_source", "unknown"),
-                "language": page_attr.get("language", "unknown"),
-                "layout": page_attr.get("layout", "unknown"),
-            }
         }
+
+    def evaluate(self, conversation, completion):
+        """Return 1 - NED (higher is better, per OmniDocBench paper)."""
+        from nanochat.vision_eval import normalized_edit_distance
+        gt = conversation["messages"][1]["content"]
+        return 1 - normalized_edit_distance(completion, gt)
 
 
 class OmniDocBenchFull(Task):
@@ -140,12 +142,7 @@ class OmniDocBenchFull(Task):
 
 
 if __name__ == "__main__":
-    # Quick test
-    print("Testing OmniDocBench dataset...")
-    ds = OmniDocBench(stop=3)
-    print(f"Loaded {len(ds)} samples")
+    ds = OmniDocBench()
+    print(f"OmniDocBench: {len(ds)} samples")
     ex = ds[0]
-    print(f"Keys: {ex.keys()}")
     print(f"GT length: {len(ex['messages'][1]['content'])} chars")
-    print(f"Metadata: {ex['metadata']}")
-    print(f"Has image: {len(ex['images']) > 0}")

@@ -144,3 +144,30 @@ def evaluate_ocr(model, tokenizer, dataset, device, max_samples=-1, max_tokens=2
         "avg_f1": round(total_f1 / n_valid, 4) if n_valid else 0,
         "results": results,
     }
+
+
+# -----------------------------------------------------------------------------
+# Simple eval interface (matches chat_eval.run_chat_eval pattern)
+
+def run_vision_eval(task_name, model, tokenizer, max_problems=None):
+    """
+    Run vision eval on a task. Returns primary metric (higher is better).
+    - Fox: precision
+    - OmniDocBench: 1 - NED
+    """
+    from tasks.fox import Fox
+    from tasks.omnidocbench import OmniDocBench
+
+    task_module = {
+        'Fox': Fox,
+        'OmniDocBench': OmniDocBench,
+    }[task_name]
+    dataset = task_module()
+
+    device = next(model.parameters()).device
+    out = evaluate_ocr(model, tokenizer, dataset, device, max_samples=max_problems or -1, verbose=False)
+
+    if task_name == "Fox":
+        return out["avg_precision"]
+    else:
+        return 1 - out["avg_ned"]

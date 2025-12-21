@@ -36,6 +36,7 @@ from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb
+from nanochat.vision_eval import run_vision_eval
 import wandb
 from tasks.finevision import FineVision
 from tasks.smoltalk import SmolTalk
@@ -65,6 +66,8 @@ resume_from_deepencoder = ""  # DeepEncoder checkpoint path (REQUIRED for Stage 
 # Evaluation
 eval_every = 100  # evaluate every N steps
 eval_steps = 2  # number of batches to evaluate
+eval_metrics_every = 500  # evaluate Fox/OmniDocBench metrics every N steps
+eval_metrics_max_problems = 100  # max problems per task (Fox=112, OmniDocBench=1355)
 # Runtime
 device_type = ""  # cuda|cpu|mps (empty = autodetect)
 
@@ -275,6 +278,19 @@ for step in range(start_step, steps):
             min_val_loss = val_loss
         print0(f"Step {step:05d} | Validation loss: {val_loss:.4f} | min: {min_val_loss:.4f}")
         wandb_run.log({"step": step, "val/loss": val_loss})
+        model.train()
+
+    # -------------------------------------------------------------------------
+    # Vision metrics (Fox precision, OmniDocBench 1-NED)
+    if eval_metrics_every > 0 and (last_step or (step > 0 and step % eval_metrics_every == 0)):
+        model.eval()
+        metrics = {}
+        with torch.no_grad(), autocast_ctx:
+            metrics["fox_precision"] = run_vision_eval("Fox", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+            metrics["omnidoc_acc"] = run_vision_eval("OmniDocBench", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+        metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
+        print0(f"Step {step:05d} | {metrics_str}")
+        wandb_run.log({"step": step, **metrics})
         model.train()
 
     # -------------------------------------------------------------------------
