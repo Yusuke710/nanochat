@@ -5,6 +5,20 @@ import math
 import torch
 import torch.distributed as dist
 
+
+def _reduce_and_compute_bpb(total_nats, total_bytes):
+    """Reduce across ranks and compute BPB."""
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    if world_size > 1:
+        dist.all_reduce(total_nats, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_bytes, op=dist.ReduceOp.SUM)
+    total_nats = total_nats.item()
+    total_bytes = total_bytes.item()
+    if total_bytes == 0:
+        return float('inf')
+    return total_nats / (math.log(2) * total_bytes)
+
+
 @torch.no_grad()
 def evaluate_bpb(model, batches, steps, token_bytes):
     """
@@ -51,15 +65,33 @@ def evaluate_bpb(model, batches, steps, token_bytes):
             num_bytes2d = token_bytes[y]
             total_nats += (loss2d * (num_bytes2d > 0)).sum()
             total_bytes += num_bytes2d.sum()
-    # sum reduce across all ranks
-    world_size = dist.get_world_size() if dist.is_initialized() else 1
-    if world_size > 1:
-        dist.all_reduce(total_nats, op=dist.ReduceOp.SUM)
-        dist.all_reduce(total_bytes, op=dist.ReduceOp.SUM)
-    # move both to cpu, calculate bpb and return
-    total_nats = total_nats.item()
-    total_bytes = total_bytes.item()
-    if total_bytes == 0:
-        return float('inf')
-    bpb = total_nats / (math.log(2) * total_bytes)
-    return bpb
+    return _reduce_and_compute_bpb(total_nats, total_bytes)
+
+
+@torch.no_grad()
+def evaluate_bpb_multimodal(model, batches, steps, token_bytes, device):
+    """BPB evaluation for multimodal models with (inputs, targets, media) batches."""
+    total_nats = torch.tensor(0.0, dtype=torch.float32, device=device)
+    total_bytes = torch.tensor(0, dtype=torch.int64, device=device)
+    batch_iter = iter(batches)
+    for _ in range(steps):
+        inputs, targets, media = next(batch_iter)
+        inputs = inputs.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        pixel_values = media["pixel_values"]
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(device, non_blocking=True)
+        loss2d = model(input_ids=inputs, targets=targets, pixel_values=pixel_values, loss_reduction='none')
+        loss2d = loss2d.view(-1)
+        y = targets.view(-1)
+        if (y.int() < 0).any():
+            valid = y >= 0
+            y_safe = torch.where(valid, y, torch.zeros_like(y))
+            num_bytes2d = torch.where(valid, token_bytes[y_safe], torch.zeros_like(y, dtype=token_bytes.dtype))
+            total_nats += (loss2d * (num_bytes2d > 0)).sum()
+            total_bytes += num_bytes2d.sum()
+        else:
+            num_bytes2d = token_bytes[y]
+            total_nats += (loss2d * (num_bytes2d > 0)).sum()
+            total_bytes += num_bytes2d.sum()
+    return _reduce_and_compute_bpb(total_nats, total_bytes)

@@ -28,13 +28,13 @@ import time
 from contextlib import nullcontext
 
 import torch
-import torch.distributed as dist
 
 from nanochat.gpt import GPTConfig
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
 from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.multimodal_dataloader import create_multimodal_loader
-from nanochat.tokenizer import RustBPETokenizer
+from nanochat.tokenizer import RustBPETokenizer, get_token_bytes
+from nanochat.loss_eval import evaluate_bpb_multimodal
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb
 import wandb
 from tasks.finevision import FineVision
@@ -173,6 +173,9 @@ for p in model.sam_model.parameters():
 
 model = model.to(device)
 
+# Load token bytes for BPB computation
+token_bytes = get_token_bytes(device=device)
+
 # -----------------------------------------------------------------------------
 # Wrap with DDP for multi-GPU training
 if ddp:
@@ -240,7 +243,7 @@ print0(f"Batch shapes: inputs={inputs.shape}, targets={targets.shape}, pixel_val
 
 # -----------------------------------------------------------------------------
 # Loop state
-min_val_loss = float("inf")
+min_val_bpb = float("inf")
 smooth_train_loss = 0.0
 total_training_time = 0.0
 
@@ -257,30 +260,12 @@ for step in range(start_step, steps):
     # Evaluation
     if eval_every > 0 and (last_step or (step > 0 and step % eval_every == 0)):
         model.eval()
-        val_loader = val_loader_fn()
-        val_loss_sum = 0.0
-        with torch.no_grad():
-            for i, (val_inputs, val_targets, val_media) in enumerate(val_loader):
-                if i >= eval_steps:
-                    break
-                val_inputs = val_inputs.to(device, non_blocking=True)
-                val_targets = val_targets.to(device, non_blocking=True)
-                val_pv = val_media["pixel_values"]
-                if val_pv is not None:
-                    val_pv = val_pv.to(device, non_blocking=True)
-                with autocast_ctx:
-                    val_loss = model(input_ids=val_inputs, targets=val_targets, pixel_values=val_pv)
-                val_loss_sum += val_loss.item()
-        val_loss_avg = val_loss_sum / eval_steps
-        # Aggregate validation loss across all ranks
-        if ddp:
-            val_loss_tensor = torch.tensor(val_loss_avg, device=device)
-            dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.AVG)
-            val_loss_avg = val_loss_tensor.item()
-        if val_loss_avg < min_val_loss:
-            min_val_loss = val_loss_avg
-        print0(f"Step {step:05d} | Validation loss: {val_loss_avg:.4f} | min: {min_val_loss:.4f}")
-        wandb_run.log({"step": step, "val/loss": val_loss_avg})
+        with autocast_ctx:
+            val_bpb = evaluate_bpb_multimodal(model, val_loader_fn(), eval_steps, token_bytes, device)
+        if val_bpb < min_val_bpb:
+            min_val_bpb = val_bpb
+        print0(f"Step {step:05d} | Validation bpb: {val_bpb:.4f}")
+        wandb_run.log({"step": step, "val/bpb": val_bpb})
         model.train()
 
     # -------------------------------------------------------------------------
@@ -367,9 +352,9 @@ if master_process:
 
 # Final stats
 print0(f"Total training time: {total_training_time / 60:.2f}m")
-print0(f"Minimum val loss: {min_val_loss:.4f}")
+print0(f"Minimum val bpb: {min_val_bpb:.4f}")
 
-if min_val_loss < 0.5:
+if min_val_bpb < 1.0:
     print0("SUCCESS: Stage 2 training converged!")
 
 wandb_run.finish()
