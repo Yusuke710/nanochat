@@ -208,10 +208,12 @@ for step in range(start_step, steps):
     # Evaluation
     if eval_every > 0 and (last_step or (step > 0 and step % eval_every == 0)):
         model.eval()
-        val_loader = val_loader_fn()
+        val_loader = iter(val_loader_fn())
         losses = []
         for _ in range(eval_steps):
             val_inputs, val_targets, val_media = next(val_loader)
+            val_inputs = val_inputs.to(device, non_blocking=True)
+            val_targets = val_targets.to(device, non_blocking=True)
             val_pv = val_media["pixel_values"]
             if val_pv is not None:
                 val_pv = val_pv.to(device, non_blocking=True)
