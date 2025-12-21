@@ -2,6 +2,8 @@
 
 Add vision capability to nanochat using DeepSeek-OCR's vision encoder.
 
+**Status: Tier-1 COMPLETE ✅** (2024-12-20)
+
 ## Architecture
 
 ```
@@ -9,7 +11,7 @@ Image (H×W×3)
     │
     ▼
 ┌─────────────────────────────────────────┐
-│ SAM-ViT-B (~92M params)                 │
+│ SAM-ViT-B (~96M params)                 │
 │ - 768 embed, 12 layers, 12 heads        │
 │ - Output: (H/16, W/16, 768)             │
 │ - Conv compressor: 4× reduction         │
@@ -17,22 +19,22 @@ Image (H×W×3)
     │
     ▼
 ┌─────────────────────────────────────────┐
-│ CLIP-L/14 (~300M params)                │
+│ CLIP-L/14 (~303M params)                │
 │ - Takes compressed SAM features         │
 │ - 24 layers, 1024 hidden dim            │
 └─────────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────────┐
-│ MLP Projector (~1.5M)                   │
-│ - CLIP + SAM features → n_embd          │
+│ Linear Projector (~2.6M)                │
+│ - CLIP features (2048) → n_embd (1280)  │
 └─────────────────────────────────────────┘
     │
     ▼
-Vision Embeddings → Replace <image> positions → nanochat GPT (~570M)
+Vision Embeddings → Replace <image> positions → nanochat GPT (~561M)
 ```
 
-**Total: ~970M params**
+**Total: ~962M params**
 
 ## Core Design (Karpathy Style)
 
@@ -65,10 +67,12 @@ nanochat/
 
 | Stage | Script | Trainable | Frozen | Data | Seq Len |
 |-------|--------|-----------|--------|------|---------|
-| 1 | `vis_tok_train.py` | SAM, CLIP, Projector, GPT | Nothing | `TaskMixture([VisionTask()])` | 4096 |
-| 2 | `vis_mid_train.py` | CLIP, Projector, GPT | SAM + Conv | `TaskMixture([VisionTask(), TextTask()])` | 8192 |
+| 1 | `vis_tok_train.py` | SAM, CLIP, Projector, GPT (~962M) | Nothing | Vision data | 4096 |
+| 2 | `vis_mid_train.py` | CLIP, Projector, GPT (~866M) | SAM (~96M) | Vision + Text | 8192 |
 
-Both stages use `multimodal_data_generator()` - only the TaskMixture contents change.
+**Two-Stage Workflow:**
+1. Stage 1 trains all params, saves `deepencoder_{steps}.pt` (vision encoder only)
+2. Stage 2 loads DeepEncoder + fresh nanochat GPT from HuggingFace
 
 **Optimizer (per DeepSeek-OCR paper):**
 - Stage 1: AdamW lr=5e-5, cosine annealing
@@ -95,56 +99,101 @@ Token formula: `(num_queries + 1) × num_queries + 1` where `num_queries = resol
 ### Quick Testing
 
 ```bash
-python -m scripts.vision_sample
-python -m scripts.vision_sample --resume_step=150
+# Stage 1 training (all params trainable)
+python -m scripts.vis_tok_train --steps=500 --batch_size=4
+
+# Stage 2 training (SAM frozen, fresh GPT)
+python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_500.pt --steps=1000
+
+# Inference evaluation
+python -m scripts.vision_sample --resume_step=1000
 ```
 
 ### Success Criteria
 
 | Tier | Criteria | Status |
 |------|----------|--------|
-| 1 | Overfit to near-zero loss on 10 images. 100% accuracy on `vision_sample.py`. | 🔄 Re-run with unified pipeline |
+| 1 | Overfit to near-zero loss on 10 images. 100% accuracy on `vision_sample.py`. | ✅ COMPLETE |
 | 2 | Mixed vision+text training on scaled data (details below) | Pending |
 | 3 | Competitive scores on Fox/OmniDocBench | Pending |
 
-### Tier 1 Re-validation (Unified Pipeline)
+### Tier 1 Results (COMPLETE)
 
-**Why re-run:** New `multimodal_dataloader.py` and `MEDIA_PLACEHOLDERS` in tokenizer. Must verify the unified pipeline works before scaling.
+**Two-Stage Training Results:**
+- Stage 1: 500 steps, batch_size=4, lr=5e-5 → val loss: 0.0009
+- Stage 2: 1000 steps, batch_size=4, lr=3e-5 → val loss: 0.02
 
-**Data:**
+**Inference Results:**
+```
+ID              Loss    Overlap
+========================================
+receipt_000   0.0030    100%  ✓
+receipt_001   0.0145    100%  ✓
+receipt_002   0.0072    100%  ✓
+receipt_003   0.0060    100%  ✓
+chart_01      0.0003    100%  ✓
+chart_02      0.0004    100%  ✓
+chart_03      0.0004    100%  ✓
+textvqa_01    0.0004    100%  ✓
+textvqa_02    0.0004    100%  ✓
+textvqa_03    0.0004    100%  ✓
+========================================
+Avg loss: 0.0033
+Avg overlap: 100.0%
+```
 
-| Stage | TaskMixture | Purpose |
-|-------|-------------|---------|
-| Stage 1 | `OverfitSamples(data_dir="data")` | Vision-only, 10 images |
-| Stage 2 | `OverfitSamples(...) + SmolTalk(limit=10)` | Mixed training validation |
-
-**Success criteria:**
-- Stage 1: Near-zero loss, 100% accuracy on `vision_sample.py`
-- Stage 2: Loss converges on both vision and text samples
+**Key Findings:**
+- Vision encoder collapse at 500 steps was due to insufficient training (resolved with more steps)
+- SAM learns image-specific features with adequate training
+- Two-stage pipeline successfully preserves DeepEncoder while training fresh GPT
+- See [findings.md](../findings.md) for detailed analysis
 
 ### Tier 2 Data Strategy
 
 **Goal:** Verify mixed data pipeline works and scales beyond Tier 1 overfitting.
 
-**Datasets (1k samples each):**
-- **olmOCR** (allenai/olmOCR-mix-1025) - OCR/document understanding
-- **LLaVA-CC3M-Pretrain-595K** - image captioning/general vision
-- **SmolTalk** - text-only conversation data
+**Datasets:**
+- **FineVision** (HuggingFaceM4/FineVision) - 185 subsets, 24.3M samples (FineWeb for vision)
+- **SFT data used in mid-training** - Karpathy's mid-training text recipe (reused from nanochat)
 
 **Training Stages:**
 
-| Stage | Data | Purpose |
-|-------|------|---------|
-| Stage 1 | olmOCR (1k) + LLaVA-CC3M-Pretrain-595K (1k) | Vision-only pretraining |
-| Stage 2 | olmOCR (1k) + LLaVA-CC3M-Pretrain-595K (1k) + SmolTalk (1k) | Mixed vision+text fine-tuning |
+| Stage | Data | Mix |
+|-------|------|-----|
+| Stage 1 | FineVision OCR subsets | 100% vision |
+| Stage 2 | FineVision (70% OCR + 20% General) + Karpathy's mid traning text data (10% text) | 70/20/10 |
+
+**Priority FineVision subsets:**
+- DoclingMatix (1.27M) - PDF→Markdown
+- SynthChartNet (500K) - Charts→OTSL
 
 **Rationale:**
-- Small scale (3k total) enables quick iteration
-- Two vision datasets ensure diversity in vision tasks
-- Text data in Stage 2 validates mixed modality training
-- Confirms data pipeline scales before moving to Tier 3 full datasets
+- FineVision provides unified conversation format (same as our Task pattern)
+- Reuse Karpathy's battle-tested SFT dataset pipeline for text
+- See [vision_tasks.md](vision_tasks.md) for full FineVision→DeepSeek-OCR mapping
+
+## Implementation Notes (Tier-1)
+
+### Code Refactoring
+- Refactored to Karpathy style: config-at-top, generator functions, minimal abstractions
+- `image_process.py`: 170 → 66 lines
+- `vision_sample.py`: 411 → 148 lines
+- Added `<|image|>` special token (vocab 65536 → 65537)
+
+### Key Fixes Applied
+- **Inference caching**: Vision embeddings cached during generation (2.5x speedup)
+- **Image token masking**: Prevent model from generating `<|image|>` tokens
+- **CLIP patch_embedding**: Marked as non-trainable (bypassed in our architecture)
+- **DDP support**: `find_unused_parameters` for mixed vision+text training
+
+### Multi-GPU Training
+- Uses `DistributedDataParallel` (not Karpathy's DistMuon/DistAdamW)
+- Vision encoder convolutions incompatible with Karpathy's custom optimizers
+- `DistributedSampler` for data sharding across GPUs
 
 ## Related Docs
 
 - [vision_tasks.md](vision_tasks.md) - Unified multimodal pipeline (tokenizer, dataloader, Task patterns)
 - [DeepEncoder_loading_plan.md](DeepEncoder_loading_plan.md) - HuggingFace weight mappings
+- [../findings.md](../findings.md) - Detailed experimental findings and debugging notes
+- [../decisions.md](../decisions.md) - Technical decisions and rationale
