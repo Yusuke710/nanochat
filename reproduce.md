@@ -276,6 +276,43 @@ print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
 
 ---
 
+## PyTorch Compatibility Notes
+
+### PyTorch 2.8+ Required (enable_gqa)
+
+This codebase uses `enable_gqa` parameter in `F.scaled_dot_product_attention()` which requires PyTorch 2.5+. We target PyTorch 2.8+ for best performance with CUDA 12.8.
+
+If you need to run on an older PyTorch version (e.g., < 2.5) or on a GPU that only supports older CUDA, you can manually expand k,v heads instead of using `enable_gqa`. Replace the GQA logic in `nanochat/gpt.py`:
+
+```python
+# Current (PyTorch 2.8+):
+enable_gqa = self.n_head != self.n_kv_head
+y = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=enable_gqa)
+
+# Fallback (PyTorch < 2.5):
+# Note: enable_gqa removed for PyTorch <2.5 compatibility. When n_kv_head != n_head,
+# we manually expand k,v to match q's head count.
+if self.n_head != self.n_kv_head:
+    # GQA: expand k,v to match q's head count
+    n_rep = self.n_head // self.n_kv_head
+    k = k.repeat_interleave(n_rep, dim=1)
+    v = v.repeat_interleave(n_rep, dim=1)
+y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+```
+
+Also update pyproject.toml to target the appropriate CUDA version (e.g., cu121 for CUDA 12.1).
+
+### Vision Dependencies
+
+The following vision-related dependencies are added for multimodal training:
+- `easydict`: Config management for DeepEncoder loading
+- `pillow`: Image loading and processing
+- `safetensors`: Efficient weight loading for pretrained models
+- `torchvision`: Image transforms and vision model utilities
+- `transformers`: CLIP text encoder and pretrained model loading
+
+---
+
 ## Troubleshooting
 
 ### OOM (Out of Memory)

@@ -6,21 +6,22 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "datasets>=4.0.0",
-    "easydict>=1.10",
     "fastapi>=0.117.1",
     "files-to-prompt>=0.6",
-    "pillow>=10.0.0",
     "psutil>=7.1.0",
     "regex>=2025.9.1",
-    "safetensors>=0.4.0",
     "setuptools>=80.9.0",
     "tiktoken>=0.11.0",
     "tokenizers>=0.22.0",
-    "torch>=2.2.0,<2.5.0",
-    "torchvision>=0.17.0",
-    "transformers>=4.40.0",
+    "torch>=2.8.0",
     "uvicorn>=0.36.0",
     "wandb>=0.21.3",
+    # Vision dependencies for multimodal training
+    "easydict>=1.10",      # config management for DeepEncoder
+    "pillow>=10.0.0",      # image loading and processing
+    "safetensors>=0.4.0",  # efficient weight loading for pretrained models
+    "torchvision>=0.19.0", # image transforms and vision utilities
+    "transformers>=4.40.0", # CLIP text encoder and pretrained model loading
 ]
 
 [build-system]
@@ -48,15 +49,15 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 
-# target torch to cuda 12.1 (compatible with 12.2 driver) or CPU
+# target torch to cuda 12.8 or CPU
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu121", extra = "gpu" },
+    { index = "pytorch-cu128", extra = "gpu" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu121", extra = "gpu" },
+    { index = "pytorch-cu128", extra = "gpu" },
 ]
 
 [[tool.uv.index]]
@@ -65,18 +66,18 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [project.optional-dependencies]
 cpu = [
-    "torch>=2.2.0,<2.5.0",
-    "torchvision>=0.17.0",
+    "torch>=2.8.0",
+    "torchvision>=0.19.0",
 ]
 gpu = [
-    "torch>=2.2.0,<2.5.0",
-    "torchvision>=0.17.0",
+    "torch>=2.8.0",
+    "torchvision>=0.19.0",
 ]  
   
 [tool.uv]  
