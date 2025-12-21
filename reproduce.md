@@ -17,7 +17,16 @@ cd nanochat
 uv sync
 ```
 
-## 3. Download Tokenizer
+## 3. Environment Variables
+
+Set these environment variables for downloading pretrained weights and logging:
+
+```bash
+export HF_TOKEN=hf_xxx          # Required: HuggingFace token for downloading pretrained models
+export WANDB_API_KEY=xxx        # Optional: For wandb logging (set WANDB_RUN=<name> when running)
+```
+
+## 4. Download Tokenizer
 
 ```bash
 uv run python -c "
@@ -30,7 +39,7 @@ print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
 "
 ```
 
-## 4. Prepare Data
+## 5. Prepare Data
 
 For tier-1 overfitting (10 samples):
 ```bash
