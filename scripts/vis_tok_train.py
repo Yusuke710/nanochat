@@ -166,12 +166,10 @@ def get_lr(step):
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
 # Note: FineVision uses start/stop to avoid train/val overlap (only has train split on HF)
 train_ds = TaskMixture([
-    FineVision("chartqa"),  # full chartqa (~18K samples)
-    FineVision("olmOCR-mix-0225-documents", stop=10000),  # first 10K olmOCR for train
+    FineVision("chartqa", stop=18000),  # chartqa train (~18K samples)
 ])
 val_ds = TaskMixture([
-    FineVision("plotqa", stop=100),  # check generalization using different dataset
-    FineVision("olmOCR-mix-0225-documents", start=10000, stop=10100),  # 100 samples (no overlap)
+    FineVision("chartqa", start=18000, stop=18100),  # chartqa val (100 samples, no overlap)
 ])
 train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
 val_task_names = [t.__class__.__name__ for t in val_ds.tasks]

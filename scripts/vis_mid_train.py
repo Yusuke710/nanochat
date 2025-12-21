@@ -210,13 +210,11 @@ def get_lr(step):
 # Mixed batches (vision + text) are supported via masked_scatter
 # Note: FineVision uses start/stop (only has train split), SmolTalk uses split="test" for val
 train_ds = TaskMixture([
-    FineVision("chartqa"),  # first 10K chartqa for train
-    FineVision("olmOCR-mix-0225-documents", stop=10000),  # first 10K olmOCR for train
+    FineVision("chartqa", stop=18000),  # chartqa train (~18K samples)
     SmolTalk(split="train", stop=10000),  # first 10K text samples
 ])
 val_ds = TaskMixture([
-    FineVision("plotqa", stop=100),  # check generalization using different dataset
-    FineVision("olmOCR-mix-0225-documents", start=10000, stop=10100),  # 100 samples (no overlap)
+    FineVision("chartqa", start=18000, stop=18100),  # chartqa val (100 samples, no overlap)
     SmolTalk(split="test", stop=100),  # 100 samples from test split (no overlap)
 ])
 
