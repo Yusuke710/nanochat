@@ -4,7 +4,7 @@ OmniDocBench - Comprehensive document parsing benchmark.
 From: "OmniDocBench: Benchmarking Diverse PDF Document Parsing" (CVPR 2025)
 https://github.com/opendatalab/OmniDocBench
 
-1355 PDF pages covering 9 document types, 4 layout types, 3 languages.
+981 PDF pages covering 9 document types, 4 layout types, 3 languages.
 Rich annotations: text blocks, tables, formulas, reading order.
 
 Usage:
@@ -14,21 +14,25 @@ Usage:
     # Returns: {"messages": [...], "images": [PIL.Image], "metadata": {...}}
 """
 
-import json
+from io import BytesIO
 from datasets import load_dataset
+from huggingface_hub import hf_hub_download
+from PIL import Image
 from tasks.common import Task
 
 
 class OmniDocBench(Task):
     """OmniDocBench for document parsing evaluation.
 
-    Loads from HuggingFace: opendatalab/OmniDocBench
-    Contains 1355 PDF page images with comprehensive annotations.
+    Loads from HuggingFace: Quivr/OmniDocBench (has annotations in dataset).
+    Contains 981 PDF page images with comprehensive annotations.
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.ds = load_dataset("opendatalab/OmniDocBench", split="train").shuffle(seed=42)
+        # Load dataset with annotations included
+        self.ds = load_dataset("Quivr/OmniDocBench", "full_dataset", split="train")
+        print(f"  Ready: {len(self.ds)} samples from OmniDocBench")
 
     @property
     def eval_type(self):
@@ -39,28 +43,36 @@ class OmniDocBench(Task):
 
     def get_example(self, index):
         row = self.ds[index]
-
-        # Extract image
-        image = row.get("image")
-
-        # Parse annotations - layout_dets contains all page elements
         layout_dets = row.get("layout_dets", [])
         page_info = row.get("page_info", {})
+        image_path = page_info.get("image_path", "")
+
+        # Download image from HuggingFace
+        image = None
+        if image_path:
+            try:
+                img_file = hf_hub_download(
+                    repo_id="Quivr/OmniDocBench",
+                    filename=f"images/{image_path}",
+                    repo_type="dataset"
+                )
+                image = Image.open(img_file).convert("RGB")
+            except Exception:
+                pass  # Image not found
 
         # Build ground truth text from text blocks in reading order
         text_blocks = []
         for det in layout_dets:
-            if det.get("category_type") in ["text_block", "title"]:
+            if det.get("category_type") in ["text_block", "title", "header", "footer"]:
                 text = det.get("text", "")
                 if text:
-                    text_blocks.append((det.get("order", 999), text))
+                    order = det.get("order")
+                    order = order if order is not None else 999
+                    text_blocks.append((order, text))
 
         # Sort by reading order and join
         text_blocks.sort(key=lambda x: x[0])
         gt_text = "\n\n".join([t[1] for t in text_blocks])
-
-        # Page attributes for filtering/analysis
-        page_attr = page_info.get("page_attribute", {})
 
         return {
             "messages": [

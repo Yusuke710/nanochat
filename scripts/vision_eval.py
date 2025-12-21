@@ -26,8 +26,7 @@ from tasks.omnidocbench import OmniDocBench
 def evaluate_model(model, tokenizer, device, task_name, max_samples=-1):
     """
     Evaluate vision model on OCR benchmark.
-    Fox: precision (per DeepSeek-OCR paper)
-    OmniDocBench: normalized edit distance (per CVPR 2025 paper)
+    Uses accuracy = 1 - NED as primary metric (meaningful for all output lengths).
     """
     print(f"Loading {task_name} dataset...")
     if task_name == "fox":
@@ -39,16 +38,29 @@ def evaluate_model(model, tokenizer, device, task_name, max_samples=-1):
 
     print(f"Evaluating {len(dataset)} samples...")
     t0 = time.time()
-    out = evaluate_ocr(model, tokenizer, dataset, device, max_samples=max_samples)
+    out = evaluate_ocr(model, tokenizer, dataset, device, max_samples=max_samples, verbose=True)
     dt = time.time() - t0
 
-    # Primary metric depends on benchmark
-    if task_name == "fox":
-        primary = out["avg_precision"]
-        print(f"Precision: {primary:.4f} | F1: {out['avg_f1']:.4f} | time: {dt:.1f}s")
-    else:
-        primary = 1 - out["avg_ned"]  # invert so higher is better
-        print(f"NED: {out['avg_ned']:.4f} | F1: {out['avg_f1']:.4f} | time: {dt:.1f}s")
+    # Primary metric: accuracy = 1 - NED (works correctly for any output length)
+    accuracy = 1 - out["avg_ned"]
+    print(f"\n{'='*60}")
+    print(f"RESULTS ({task_name})")
+    print(f"{'='*60}")
+    print(f"Accuracy (1-NED): {accuracy:.4f} ({accuracy*100:.2f}%)")
+    print(f"NED:              {out['avg_ned']:.4f}")
+    print(f"F1:               {out['avg_f1']:.4f}")
+    print(f"Precision:        {out['avg_precision']:.4f} (misleading if output is short)")
+    print(f"Samples:          {out['num_samples']}")
+    print(f"Time:             {dt:.1f}s")
+    print(f"{'='*60}")
+
+    # Show sample outputs for debugging
+    if out.get("sample_outputs"):
+        print(f"\nSample outputs (first 3):")
+        for s in out["sample_outputs"][:3]:
+            print(f"  Pred ({len(s['pred'])} chars): {repr(s['pred'][:80])}")
+            print(f"  GT   ({len(s['gt'])} chars): {repr(s['gt'][:80])}")
+            print()
 
     return out
 

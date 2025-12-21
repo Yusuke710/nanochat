@@ -110,7 +110,8 @@ def evaluate_ocr(model, tokenizer, dataset, device, max_samples=-1, max_tokens=2
         expanded = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
 
         gen_tokens = []
-        with torch.autocast(device, dtype=torch.bfloat16):
+        device_type = device.type if isinstance(device, torch.device) else device
+        with torch.autocast(device_type, dtype=torch.bfloat16):
             for token_column, _ in engine.generate(expanded, pixel_values=pixel_values,
                                                     max_tokens=max_tokens, temperature=0.0):
                 if token_column[0] == assistant_end:
@@ -135,7 +136,11 @@ def evaluate_ocr(model, tokenizer, dataset, device, max_samples=-1, max_tokens=2
         results.append({
             "index": i, "ned": round(ned, 4), "precision": round(prec, 4),
             "f1": round(f1, 4), "metadata": sample.get("metadata", {}),
+            "pred": pred_text, "gt": gt_text,
         })
+
+    # Collect sample outputs for debugging (first 5)
+    sample_outputs = [{"pred": r["pred"], "gt": r["gt"]} for r in results[:5]]
 
     return {
         "num_samples": n_valid,
@@ -143,6 +148,7 @@ def evaluate_ocr(model, tokenizer, dataset, device, max_samples=-1, max_tokens=2
         "avg_precision": round(total_precision / n_valid, 4) if n_valid else 0,
         "avg_f1": round(total_f1 / n_valid, 4) if n_valid else 0,
         "results": results,
+        "sample_outputs": sample_outputs,
     }
 
 
