@@ -26,7 +26,7 @@ from nanochat.deepencoder.load_pretrained import (
 )
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
-from tasks.vlm_overfit10 import VLMOverfit10
+from tasks.finevision import FineVision
 from tasks.common import TaskMixture
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
 
@@ -164,8 +164,15 @@ def get_lr(step):
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
-train_ds = TaskMixture([VLMOverfit10()])  # defaults to split="train"
-val_ds = TaskMixture([VLMOverfit10()])    # same data - overfit validation
+# Note: FineVision uses start/stop to avoid train/val overlap (only has train split on HF)
+train_ds = TaskMixture([
+    FineVision("chartqa"),  # full chartqa (~18K samples)
+    FineVision("olmOCR-mix-0225-documents", stop=10000),  # first 10K olmOCR for train
+])
+val_ds = TaskMixture([
+    FineVision("plotqa", stop=100),  # check generalization using different dataset
+    FineVision("olmOCR-mix-0225-documents", start=10000, stop=10100),  # 100 samples (no overlap)
+])
 train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
 val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
 print0(f"Train tasks: {train_task_names}, Val tasks: {val_task_names}")

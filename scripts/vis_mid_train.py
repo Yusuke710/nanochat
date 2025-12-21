@@ -36,7 +36,7 @@ from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type
-from tasks.vlm_overfit10 import VLMOverfit10
+from tasks.finevision import FineVision
 from tasks.smoltalk import SmolTalk
 from tasks.common import TaskMixture
 
@@ -208,12 +208,16 @@ def get_lr(step):
 # Task Mixture (define your tasks here - task-agnostic design)
 # Modify this section to change what data is used for training
 # Mixed batches (vision + text) are supported via masked_scatter
+# Note: FineVision uses start/stop (only has train split), SmolTalk uses split="test" for val
 train_ds = TaskMixture([
-    VLMOverfit10(),  # 10 vision samples from HuggingFace
-    SmolTalk(split="train", stop=10),  # 10 text samples - mixed batch support enabled
+    FineVision("chartqa"),  # first 10K chartqa for train
+    FineVision("olmOCR-mix-0225-documents", stop=10000),  # first 10K olmOCR for train
+    SmolTalk(split="train", stop=10000),  # first 10K text samples
 ])
 val_ds = TaskMixture([
-    VLMOverfit10(),  # same data - overfit validation
+    FineVision("plotqa", stop=100),  # check generalization using different dataset
+    FineVision("olmOCR-mix-0225-documents", start=10000, stop=10100),  # 100 samples (no overlap)
+    SmolTalk(split="test", stop=100),  # 100 samples from test split (no overlap)
 ])
 
 # -----------------------------------------------------------------------------
