@@ -374,6 +374,23 @@ python -m scripts.vis_mid_train \
 - Time: ~5 minutes
 - Output: `checkpoints/step_1500.pt`
 
+### Skip Stage 1: Download DeepEncoder from HuggingFace
+
+If you want to skip Stage 1, download the pretrained DeepEncoder and use its cached path:
+
+```python
+from huggingface_hub import hf_hub_download
+path = hf_hub_download("Yusuke710/nano-deepencoder", "deepencoder.pt")
+print(path)  # e.g. ~/.cache/huggingface/hub/models--Yusuke710--nano-deepencoder/.../deepencoder.pt
+```
+
+Then run Stage 2 with the cached path:
+```bash
+python -m scripts.vis_mid_train \
+    --resume_from_deepencoder=/root/.cache/huggingface/hub/models--Yusuke710--nano-deepencoder/snapshots/.../deepencoder.pt \
+    --steps=1500 --batch_size=2
+```
+
 ### WandB Logging
 
 Both scripts log to project `nano-deepseek-ocr`:
