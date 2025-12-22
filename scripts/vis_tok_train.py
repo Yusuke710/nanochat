@@ -39,8 +39,10 @@ run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 base_size = 1024  # image resolution
 seq_len = 4096  # sequence length
 # Training
-steps = 300  # number of training steps
-batch_size = 10  # batch size
+num_epochs = 1  # number of epochs (used if steps == -1)
+steps = -1  # number of training steps (-1 = derive from num_epochs)
+target_examples_per_step = 1280  # effective batch size per step (DeepSeek-OCR stage 1)
+device_batch_size = 10  # max batch size per device to avoid OOM
 lr = 5e-5  # learning rate
 weight_decay = 0.0  # weight decay
 grad_clip = 1.0  # gradient clipping
@@ -149,7 +151,7 @@ raw_model = model.module if ddp else model  # unwrapped model for saving/attribu
 
 # Model stats
 num_params = sum(p.numel() for p in model.parameters())
-tokens_per_batch = batch_size * seq_len * ddp_world_size
+tokens_per_batch = device_batch_size * seq_len * ddp_world_size
 # Use GPT's estimate_flops for transformer part (Chinchilla formula)
 num_flops_per_token = raw_model.gpt.estimate_flops()
 print0(f"Number of parameters: {num_params:,}")
@@ -172,20 +174,38 @@ def get_lr(step):
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
+# Stage 1: OCR-focused training with olmOCR documents and books
 # Note: FineVision uses start/stop to avoid train/val overlap (only has train split on HF)
+# Val ratio ~5.2% to match Stage 2 text task proportions
 train_ds = TaskMixture([
-    FineVision("chartqa", stop=18000),  # chartqa train (~18K samples)
+    FineVision("olmOCR-mix-0225-documents", start=12000),  # 229K PDF documents (skip 12K for val)
+    FineVision("olmOCR-mix-0225-books", start=800),        # 15.2K book pages (skip 800 for val)
 ])
 val_ds = TaskMixture([
-    FineVision("chartqa", start=18000, stop=18100),  # chartqa val (100 samples, no overlap)
+    FineVision("olmOCR-mix-0225-documents", stop=12000),   # 12K samples (5.2% of 229K)
+    FineVision("olmOCR-mix-0225-books", stop=800),         # 800 samples (5.2% of 15.2K)
 ])
 train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
 val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
 print0(f"Train tasks: {train_task_names}, Val tasks: {val_task_names}")
 print0(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
 
-train_loader = create_multimodal_loader(train_ds, tokenizer, batch_size, seq_len, base_size)
-val_loader_fn = lambda: create_multimodal_loader(val_ds, tokenizer, batch_size, seq_len, base_size)
+# Derive steps from num_epochs if steps == -1
+examples_per_step = device_batch_size * ddp_world_size
+print0(f"Target examples per step: {target_examples_per_step}")
+print0(f"Device batch size: {device_batch_size}")
+print0(f"Examples per step (device_batch_size * ddp_world_size): {examples_per_step}")
+assert target_examples_per_step % examples_per_step == 0, "Target examples per step must be divisible by examples per step"
+grad_accum_steps = target_examples_per_step // examples_per_step
+print0(f"=> Setting grad accum steps: {grad_accum_steps}")
+if steps == -1:
+    # derive steps from num_epochs and the size of the dataset
+    assert num_epochs > 0, "num_epochs must be positive if steps is -1"
+    steps = (len(train_ds) // target_examples_per_step) * num_epochs
+print0(f"Total steps: {steps}")
+
+train_loader = create_multimodal_loader(train_ds, tokenizer, device_batch_size, seq_len, base_size)
+val_loader_fn = lambda: create_multimodal_loader(val_ds, tokenizer, device_batch_size, seq_len, base_size)
 
 # Verify first batch
 inputs, targets, media = next(iter(train_loader))
@@ -248,19 +268,6 @@ for step in range(start_step, steps):
         model.train()
 
     # -------------------------------------------------------------------------
-    # Get next batch
-    try:
-        inputs, targets, media = next(train_iter)
-    except StopIteration:
-        train_iter = iter(train_loader)
-        inputs, targets, media = next(train_iter)
-    inputs = inputs.to(device, non_blocking=True)
-    targets = targets.to(device, non_blocking=True)
-    pixel_values = media["pixel_values"]
-    if pixel_values is not None:
-        pixel_values = pixel_values.to(device, non_blocking=True)
-
-    # -------------------------------------------------------------------------
     # Training step with timing
     synchronize()
     t0 = time.time()
@@ -270,11 +277,27 @@ for step in range(start_step, steps):
     for group in optimizer.param_groups:
         group["lr"] = current_lr
 
-    # Forward/backward
+    # Gradient accumulation loop
     optimizer.zero_grad()
-    with autocast_ctx:
-        loss = model(input_ids=inputs, targets=targets, pixel_values=pixel_values)
-    loss.backward()
+    for micro_step in range(grad_accum_steps):
+        # Get next batch
+        try:
+            inputs, targets, media = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_loader)
+            inputs, targets, media = next(train_iter)
+        inputs = inputs.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        pixel_values = media["pixel_values"]
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(device, non_blocking=True)
+
+        # Forward/backward
+        with autocast_ctx:
+            loss = model(input_ids=inputs, targets=targets, pixel_values=pixel_values)
+        train_loss = loss.detach()  # for logging (last micro-step)
+        loss = loss / grad_accum_steps  # normalize for gradient accumulation
+        loss.backward()
 
     # Gradient clipping
     if grad_clip > 0:
@@ -289,7 +312,7 @@ for step in range(start_step, steps):
     # -------------------------------------------------------------------------
     # Logging
     ema_beta = 0.9
-    smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * loss.item()
+    smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss.item()
     debiased_loss = smooth_train_loss / (1 - ema_beta ** (step - start_step + 1))
 
     # Timing stats
