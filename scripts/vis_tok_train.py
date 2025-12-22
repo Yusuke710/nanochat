@@ -29,7 +29,7 @@ from nanochat.tokenizer import RustBPETokenizer
 from tasks.finevision import FineVision
 from tasks.common import TaskMixture
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb
-from nanochat.vision_eval import run_vision_eval
+from nanochat.vision_eval import evaluate_vision_task
 import wandb
 
 # -----------------------------------------------------------------------------
@@ -178,12 +178,12 @@ def get_lr(step):
 # Note: FineVision uses start/stop to avoid train/val overlap (only has train split on HF)
 # Val ratio ~5.2% to match Stage 2 text task proportions
 train_ds = TaskMixture([
-    FineVision("olmOCR-mix-0225-documents", start=12000),  # 229K PDF documents (skip 12K for val)
-    FineVision("olmOCR-mix-0225-books", start=800),        # 15.2K book pages (skip 800 for val)
+    FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),  # 229K PDF documents
+    FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),        # 15.2K book pages
 ])
 val_ds = TaskMixture([
-    FineVision("olmOCR-mix-0225-documents", stop=12000),   # 12K samples (5.2% of 229K)
-    FineVision("olmOCR-mix-0225-books", stop=800),         # 800 samples (5.2% of 15.2K)
+    FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),   # 12K val samples
+    FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),         # 800 val samples
 ])
 train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
 val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
@@ -257,10 +257,13 @@ for step in range(start_step, steps):
     # -------------------------------------------------------------------------
     # Vision metrics (OmniDocBench NED ↓) per DeepSeek-OCR paper
     if eval_metrics_every > 0 and (last_step or (step > 0 and step % eval_metrics_every == 0)):
+        from tasks.omnidocbench import OmniDocBench
         model.eval()
-        metrics = {}
         with torch.no_grad(), autocast_ctx:
-            metrics["omnidoc_ned"] = run_vision_eval("OmniDocBench", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+            omnidoc = OmniDocBench()
+            out = evaluate_vision_task(raw_model, tokenizer, omnidoc, device, max_samples=eval_metrics_max_problems)
+        # avg_score is 1-NED, so NED = 1 - avg_score
+        metrics = {"omnidoc_ned": round(1 - out["avg_score"], 4)}
         metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({"step": step, **metrics})

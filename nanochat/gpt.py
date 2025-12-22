@@ -63,7 +63,7 @@ class CausalSelfAttention(nn.Module):
         self.c_v = nn.Linear(self.n_embd, self.n_kv_head * self.head_dim, bias=False)
         self.c_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
 
-    def forward(self, x, cos_sin, kv_cache):
+    def forward(self, x, cos_sin, kv_cache, attention_mask=None):
         B, T, C = x.size()
 
         # Project the input to get queries, keys, and values
@@ -88,19 +88,37 @@ class CausalSelfAttention(nn.Module):
         if kv_cache is None or Tq == Tk:
             # During training (no KV cache), attend as usual with causal attention
             # And even if there is KV cache, we can still use this simple version when Tq == Tk
-            y = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=enable_gqa)
+            if attention_mask is None:
+                y = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=enable_gqa)
+            else:
+                # Combine causal mask with attention_mask for batched prefill with padding
+                # attention_mask: (B, Tk) where True = attend, False = mask (padding)
+                # Build causal mask: (Tq, Tk) lower triangular
+                causal_mask = torch.tril(torch.ones((Tq, Tk), dtype=torch.bool, device=q.device))
+                # Expand attention_mask: (B, 1, 1, Tk) and causal: (1, 1, Tq, Tk)
+                attn_mask = attention_mask[:, None, None, :] & causal_mask[None, None, :, :]
+                y = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, enable_gqa=enable_gqa)
         elif Tq == 1:
             # During inference but with a single query in this forward pass:
             # The query has to attend to all the keys/values in the cache
-            y = F.scaled_dot_product_attention(q, k, v, is_causal=False, enable_gqa=enable_gqa)
+            if attention_mask is None:
+                y = F.scaled_dot_product_attention(q, k, v, is_causal=False, enable_gqa=enable_gqa)
+            else:
+                # attention_mask: (B, Tk) - mask out padding positions
+                attn_mask = attention_mask[:, None, None, :]  # (B, 1, 1, Tk)
+                y = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, enable_gqa=enable_gqa)
         else:
             # During inference AND we have a chunk of queries in this forward pass:
             # First, each query attends to all the cached keys/values (i.e. full prefix)
-            attn_mask = torch.zeros((Tq, Tk), dtype=torch.bool, device=q.device) # True = keep, False = mask
+            causal_mask = torch.zeros((Tq, Tk), dtype=torch.bool, device=q.device) # True = keep, False = mask
             prefix_len = Tk - Tq
-            attn_mask[:, :prefix_len] = True
+            causal_mask[:, :prefix_len] = True
             # Then, causal attention within this chunk
-            attn_mask[:, prefix_len:] = torch.tril(torch.ones((Tq, Tq), dtype=torch.bool, device=q.device))
+            causal_mask[:, prefix_len:] = torch.tril(torch.ones((Tq, Tq), dtype=torch.bool, device=q.device))
+            if attention_mask is not None:
+                attn_mask = attention_mask[:, None, None, :] & causal_mask[None, None, :, :]
+            else:
+                attn_mask = causal_mask
             y = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, enable_gqa=enable_gqa)
 
         # Re-assemble the heads side by side and project back to residual stream
@@ -128,8 +146,8 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(config, layer_idx)
         self.mlp = MLP(config)
 
-    def forward(self, x, cos_sin, kv_cache):
-        x = x + self.attn(norm(x), cos_sin, kv_cache)
+    def forward(self, x, cos_sin, kv_cache, attention_mask=None):
+        x = x + self.attn(norm(x), cos_sin, kv_cache, attention_mask)
         x = x + self.mlp(norm(x))
         return x
 
@@ -240,7 +258,7 @@ class GPT(nn.Module):
                 group["initial_lr"] = group["lr"]
         return optimizers
 
-    def forward(self, idx, targets=None, kv_cache=None, loss_reduction='mean'):
+    def forward(self, idx, targets=None, kv_cache=None, loss_reduction='mean', attention_mask=None):
         B, T = idx.size()
 
         # Grab the rotary embeddings for the current sequence length (they are of shape (1, seq_len, 1, head_dim/2))
@@ -255,7 +273,7 @@ class GPT(nn.Module):
         x = self.transformer.wte(idx)
         x = norm(x)
         for block in self.transformer.h:
-            x = block(x, cos_sin, kv_cache)
+            x = block(x, cos_sin, kv_cache, attention_mask)
         x = norm(x)
 
         # Forward the lm_head (compute logits)

@@ -12,9 +12,12 @@ Usage:
     dataset = OmniDocBench()
     sample = dataset[0]
     # Returns: {"messages": [...], "images": [PIL.Image], "metadata": {...}}
+
+Prompts (DeepSeek-OCR style):
+    "<image>\nFree OCR."                                    - plain text
+    "<image>\n<|grounding|>Convert the document to markdown." - with layout
 """
 
-from io import BytesIO
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 from PIL import Image
@@ -26,10 +29,14 @@ class OmniDocBench(Task):
 
     Loads from HuggingFace: Quivr/OmniDocBench (has annotations in dataset).
     Contains 981 PDF page images with comprehensive annotations.
+
+    Args:
+        prompt: User prompt (default: "<image>\nFree OCR.")
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, prompt="<image>\nFree OCR.", **kwargs):
         super().__init__(**kwargs)
+        self.prompt = prompt
         # Load dataset with annotations included
         self.ds = load_dataset("Quivr/OmniDocBench", "full_dataset", split="train")
         print(f"  Ready: {len(self.ds)} samples from OmniDocBench")
@@ -74,83 +81,50 @@ class OmniDocBench(Task):
         text_blocks.sort(key=lambda x: x[0])
         gt_text = "\n\n".join([t[1] for t in text_blocks])
 
+        # Extract metadata for category-wise evaluation
+        page_attr = page_info.get("page_attribute", {})
+        metadata = {
+            "language": page_attr.get("language", "unknown"),
+            "data_source": page_attr.get("data_source", "unknown"),
+            "layout": page_attr.get("layout", "unknown"),
+        }
+
         return {
             "messages": [
-                {"role": "user", "content": "<image>\nOCR this document."},
+                {"role": "user", "content": self.prompt},
                 {"role": "assistant", "content": gt_text}
             ],
             "images": [image] if image else [],
+            "metadata": metadata,
         }
 
     def evaluate(self, conversation, completion):
         """Return 1 - NED (higher is better, per OmniDocBench paper)."""
-        from nanochat.vision_eval import normalized_edit_distance
         gt = conversation["messages"][1]["content"]
-        return 1 - normalized_edit_distance(completion, gt)
+        ned = self._normalized_edit_distance(completion, gt)
+        return 1 - ned
 
+    @staticmethod
+    def _edit_distance(s1, s2):
+        """Levenshtein edit distance."""
+        if len(s1) < len(s2):
+            return OmniDocBench._edit_distance(s2, s1)
+        if len(s2) == 0:
+            return len(s1)
+        prev = range(len(s2) + 1)
+        for c1 in s1:
+            curr = [prev[0] + 1]
+            for j, c2 in enumerate(s2):
+                curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
+            prev = curr
+        return prev[-1]
 
-class OmniDocBenchFull(Task):
-    """OmniDocBench with full annotations (tables, formulas, etc).
-
-    Returns structured output including:
-    - text_blocks: paragraphs and titles
-    - tables: LaTeX/HTML table representations
-    - formulas: LaTeX formula representations
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        print("Loading OmniDocBench dataset (full mode)...")
-        self.ds = load_dataset("opendatalab/OmniDocBench", split="train")
-        print(f"  Ready: {len(self.ds)} samples")
-
-    def num_examples(self):
-        return len(self.ds)
-
-    def get_example(self, index):
-        row = self.ds[index]
-        image = row.get("image")
-        layout_dets = row.get("layout_dets", [])
-        page_info = row.get("page_info", {})
-
-        # Categorize elements
-        text_blocks, tables, formulas = [], [], []
-        for det in layout_dets:
-            cat = det.get("category_type", "")
-            order = det.get("order", 999)
-
-            if cat in ["text_block", "title"]:
-                text_blocks.append((order, det.get("text", "")))
-            elif cat == "table":
-                tables.append((order, det.get("latex", det.get("html", ""))))
-            elif cat in ["equation_isolated", "equation_inline"]:
-                formulas.append((order, det.get("latex", "")))
-
-        # Sort each by reading order
-        text_blocks.sort(key=lambda x: x[0])
-        tables.sort(key=lambda x: x[0])
-        formulas.sort(key=lambda x: x[0])
-
-        page_attr = page_info.get("page_attribute", {})
-
-        return {
-            "messages": [
-                {"role": "user", "content": "<image>\nParse this document."},
-                {"role": "assistant", "content": ""}  # filled during structured eval
-            ],
-            "images": [image] if image else [],
-            "annotations": {
-                "text_blocks": [t[1] for t in text_blocks],
-                "tables": [t[1] for t in tables],
-                "formulas": [t[1] for t in formulas],
-            },
-            "metadata": {
-                "page_no": page_info.get("page_no", 0),
-                "data_source": page_attr.get("data_source", "unknown"),
-                "language": page_attr.get("language", "unknown"),
-                "layout": page_attr.get("layout", "unknown"),
-            }
-        }
+    @staticmethod
+    def _normalized_edit_distance(pred, gt):
+        """NED: 0 = perfect, 1 = completely wrong."""
+        if len(gt) == 0:
+            return 0.0 if len(pred) == 0 else 1.0
+        return OmniDocBench._edit_distance(pred, gt) / max(len(pred), len(gt))
 
 
 if __name__ == "__main__":

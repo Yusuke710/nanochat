@@ -332,6 +332,48 @@ class Engine:
                 break
         return results, masks
 
+    @torch.inference_mode()
+    def generate_prompts(self, prompts, pixel_values_list=None, max_tokens=256, temperature=0.0):
+        """Batched generation for different prompts. Returns list of generated token lists."""
+        device = self.model.get_device()
+        B = len(prompts)
+        eos = self.tokenizer.encode_special("<|assistant_end|>")
+        pad = self.tokenizer.get_bos_token_id()
+
+        # Left-pad to same length
+        max_len = max(len(p) for p in prompts)
+        ids = torch.full((B, max_len), pad, dtype=torch.long, device=device)
+        mask = torch.zeros((B, max_len), dtype=torch.bool, device=device)
+        for i, p in enumerate(prompts):
+            ids[i, max_len - len(p):] = torch.tensor(p, dtype=torch.long)
+            mask[i, max_len - len(p):] = True
+
+        # Stack pixel values
+        pix = torch.cat(pixel_values_list, dim=0) if pixel_values_list else None
+
+        # Prefill with KV cache
+        m = self.model.config
+        kv = KVCache(B, max_len + max_tokens, m.n_kv_head, m.n_embd // m.n_head, m.n_layer)
+        logits = self.model.forward(ids, pixel_values=pix, kv_cache=kv, attention_mask=mask)[:, -1, :]
+        next_tok = torch.argmax(logits, dim=-1, keepdim=True) if temperature == 0 else None  # greedy only for now
+
+        # Decode loop
+        results = [[] for _ in range(B)]
+        done = [False] * B
+        for _ in range(max_tokens):
+            for i, t in enumerate(next_tok[:, 0].tolist()):
+                if not done[i]:
+                    if t == eos:
+                        done[i] = True
+                    else:
+                        results[i].append(t)
+            if all(done):
+                break
+            logits = self.model.forward(next_tok, kv_cache=kv)[:, -1, :]
+            next_tok = torch.argmax(logits, dim=-1, keepdim=True)
+
+        return results
+
 
 if __name__ == "__main__":
     """

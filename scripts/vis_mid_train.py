@@ -36,7 +36,7 @@ from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb, get_base_dir
-from nanochat.vision_eval import run_vision_eval
+from nanochat.vision_eval import evaluate_vision_task
 import wandb
 from tasks.finevision import FineVision
 from tasks.smoltalk import SmolTalk
@@ -229,10 +229,10 @@ identity_conversations_filepath = os.path.join(base_dir, "identity_conversations
 
 train_ds = TaskMixture([
     # OCR datasets (same as Stage 1) - skip first N samples reserved for val
-    FineVision("olmOCR-mix-0225-documents", start=12000),  # 229K PDF documents (skip 12K for val)
-    FineVision("olmOCR-mix-0225-books", start=800),        # 15.2K book pages (skip 800 for val)
+    FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),  # 229K PDF documents
+    FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),        # 15.2K book pages
     # General vision
-    FineVision("LLaVA_Instruct_150K", start=8000),         # 158K instruction-following (skip 8K for val)
+    FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", start=8000),  # 158K
     # Text tasks (from mid_train.py)
     SmolTalk(split="train"),                               # 460K general conversations
     MMLU(subset="auxiliary_train", split="train"),         # 100K multiple choice
@@ -240,9 +240,9 @@ train_ds = TaskMixture([
 ])
 val_ds = TaskMixture([
     # Vision val (~5.2% ratio to match text tasks)
-    FineVision("olmOCR-mix-0225-documents", stop=12000),   # 12K samples (5.2% of 229K)
-    FineVision("olmOCR-mix-0225-books", stop=800),         # 800 samples (5.2% of 15.2K)
-    FineVision("LLaVA_Instruct_150K", stop=8000),          # 8K samples (5.2% of 158K)
+    FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),   # 12K val samples
+    FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),         # 800 val samples
+    FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", stop=8000),  # 8K val
     # Text val (from separate test splits)
     SmolTalk(split="test"),                                # 24K rows in test set
     MMLU(subset="all", split="test", stop=5200),           # 5.2K (5.2% of 100K train)
@@ -323,10 +323,13 @@ for step in range(start_step, steps):
     # -------------------------------------------------------------------------
     # Vision metrics (OmniDocBench NED ↓) per DeepSeek-OCR paper
     if eval_metrics_every > 0 and (last_step or (step > 0 and step % eval_metrics_every == 0)):
+        from tasks.omnidocbench import OmniDocBench
         model.eval()
-        metrics = {}
         with torch.no_grad(), autocast_ctx:
-            metrics["omnidoc_ned"] = run_vision_eval("OmniDocBench", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+            omnidoc = OmniDocBench()
+            out = evaluate_vision_task(raw_model, tokenizer, omnidoc, device, max_samples=eval_metrics_max_problems)
+        # avg_score is 1-NED, so NED = 1 - avg_score
+        metrics = {"omnidoc_ned": round(1 - out["avg_score"], 4)}
         metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({"step": step, **metrics})

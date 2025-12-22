@@ -5,6 +5,10 @@ From: "Fox: Focus Anywhere for Fine-grained Multi-page Document Understanding"
 https://github.com/ucaslcl/Fox
 
 English page OCR: 112 samples (same as DeepSeek-OCR evaluation).
+
+Prompts (DeepSeek-OCR style):
+    "<image>\nFree OCR."                                    - plain text
+    "<image>\n<|grounding|>Convert the document to markdown." - with layout
 """
 
 import json
@@ -17,10 +21,15 @@ from tasks.common import Task
 
 
 class Fox(Task):
-    """Fox benchmark for page-level OCR evaluation (112 samples)."""
+    """Fox benchmark for page-level OCR evaluation (112 samples).
 
-    def __init__(self, **kwargs):
+    Args:
+        prompt: User prompt (default: "<image>\nFree OCR.")
+    """
+
+    def __init__(self, prompt="<image>\nFree OCR.", **kwargs):
         super().__init__(**kwargs)
+        self.prompt = prompt
 
         # Download and load from zip
         zip_path = hf_hub_download(
@@ -60,17 +69,21 @@ class Fox(Task):
 
         return {
             "messages": [
-                {"role": "user", "content": "<image>\nOCR this document."},
+                {"role": "user", "content": self.prompt},
                 {"role": "assistant", "content": gt_text}
             ],
             "images": [image],
+            "metadata": {"language": "english"},  # Fox is English-only
         }
 
     def evaluate(self, conversation, completion):
         """Return precision score (DeepSeek-OCR metric)."""
-        from nanochat.vision_eval import precision
         gt = conversation["messages"][1]["content"]
-        return precision(completion, gt)
+        pred_words = set(completion.split())
+        gt_words = set(gt.split())
+        if len(pred_words) == 0:
+            return 1.0 if len(gt_words) == 0 else 0.0
+        return len(pred_words & gt_words) / len(pred_words)
 
 
 if __name__ == "__main__":

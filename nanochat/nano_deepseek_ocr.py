@@ -183,6 +183,7 @@ class NanoDeepseekOCR(nn.Module):
         vision_embeds: Optional[torch.Tensor] = None,
         loss_reduction: str = 'mean',
         kv_cache=None,
+        attention_mask=None,
     ):
         """
         Forward pass for training and inference.
@@ -240,7 +241,7 @@ class NanoDeepseekOCR(nn.Module):
             text_embeds = text_embeds.masked_scatter(scatter_mask, flat_vision.to(text_embeds.dtype))
 
         # Forward through GPT with inputs_embeds
-        return self._forward_gpt_with_embeds(text_embeds, targets, loss_reduction, kv_cache)
+        return self._forward_gpt_with_embeds(text_embeds, targets, loss_reduction, kv_cache, attention_mask)
 
     def _forward_gpt_with_embeds(
         self,
@@ -248,6 +249,7 @@ class NanoDeepseekOCR(nn.Module):
         targets: Optional[torch.Tensor],
         loss_reduction: str = 'mean',
         kv_cache=None,
+        attention_mask=None,
     ):
         """
         Forward pass through GPT starting from embeddings instead of token IDs.
@@ -266,7 +268,7 @@ class NanoDeepseekOCR(nn.Module):
         x = inputs_embeds
         x = F.rms_norm(x, (x.size(-1),))  # norm after embedding
         for block in self.gpt.transformer.h:
-            x = block(x, cos_sin, kv_cache)
+            x = block(x, cos_sin, kv_cache, attention_mask)
         x = F.rms_norm(x, (x.size(-1),))  # final norm
 
         # Compute logits

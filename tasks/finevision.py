@@ -43,17 +43,19 @@ class FineVision(Task):
 
     Args:
         subset_name: Name of the FineVision subset (e.g., "DoclingMatix", "SynthChartNet")
+        prompt: Override user prompt (without <image>). If None, uses original dataset prompt.
+                Example: "Free OCR." becomes "<image>\nFree OCR."
         **kwargs: Passed to Task base class (start, stop, step for slicing)
 
     Examples:
-        FineVision("chartqa")                    # full dataset
-        FineVision("chartqa", stop=10000)        # first 10K samples
-        FineVision("chartqa", start=10000, stop=10100)  # samples 10000-10099
+        FineVision("chartqa")                          # original prompts
+        FineVision("chartqa", prompt="Free OCR.")      # DeepSeek-OCR style
     """
 
-    def __init__(self, subset_name: str, **kwargs):
+    def __init__(self, subset_name: str, prompt: str = None, **kwargs):
         super().__init__(**kwargs)
         self.subset_name = subset_name
+        self.prompt_override = prompt
 
         # Load subset with HF native random access (memory-mapped Arrow files)
         print(f"Loading FineVision/{subset_name}...")
@@ -73,7 +75,6 @@ class FineVision(Task):
         texts = sample["texts"]
 
         # Handle multi-turn conversations (flatten to first turn for now)
-        # TODO: Support multi-turn if needed
         if isinstance(texts, list) and len(texts) > 0:
             first_turn = texts[0]
             user_content = first_turn.get("user", "")
@@ -82,10 +83,13 @@ class FineVision(Task):
             user_content = ""
             assistant_content = ""
 
-        # Add <image> placeholder if images present
+        # Use override prompt or original, prepend <image> if images present
         images = sample.get("images", [])
         if images:
-            user_content = f"<image>\n{user_content}"
+            if self.prompt_override:
+                user_content = f"<image>\n{self.prompt_override}"
+            else:
+                user_content = f"<image>\n{user_content}"
 
         return {
             "messages": [

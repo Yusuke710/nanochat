@@ -1,176 +1,55 @@
-"""
-OCR evaluation functions for vision benchmarks.
+"""Vision evaluation - generate completions and compute task metrics."""
 
-Fox: Precision (decoded text vs ground truth)
-OmniDocBench: Normalized Edit Distance (primary metric)
-"""
+import torch
 
-
-# -----------------------------------------------------------------------------
-# Metrics
-
-def edit_distance(s1, s2):
-    """Levenshtein edit distance."""
-    if len(s1) < len(s2):
-        return edit_distance(s2, s1)
-    if len(s2) == 0:
-        return len(s1)
-    prev = range(len(s2) + 1)
-    for i, c1 in enumerate(s1):
-        curr = [i + 1]
-        for j, c2 in enumerate(s2):
-            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
-        prev = curr
-    return prev[-1]
-
-
-def normalized_edit_distance(pred, gt):
-    """Normalized edit distance (0 = perfect, 1 = completely wrong).
-    Primary metric for OmniDocBench.
-    """
-    if len(gt) == 0:
-        return 0.0 if len(pred) == 0 else 1.0
-    return edit_distance(pred, gt) / max(len(pred), len(gt))
-
-
-def precision(pred, gt):
-    """Word-level precision. Used by Fox benchmark.
-    Matches Fox eval: set-based word overlap.
-    """
-    pred_words = set(pred.split())
-    gt_words = set(gt.split())
-    if len(pred_words) == 0:
-        return 1.0 if len(gt_words) == 0 else 0.0
-    return len(pred_words & gt_words) / len(pred_words)
-
-
-def recall(pred, gt):
-    """Word-level recall. Matches Fox eval."""
-    pred_words = set(pred.split())
-    gt_words = set(gt.split())
-    if len(gt_words) == 0:
-        return 1.0 if len(pred_words) == 0 else 0.0
-    return len(pred_words & gt_words) / len(gt_words)
-
-
-def f1_score(pred, gt):
-    """Word-level F1 score. Matches Fox eval."""
-    p = precision(pred, gt)
-    r = recall(pred, gt)
-    if p + r == 0:
-        return 0.0
-    return 2 * p * r / (p + r)
-
-
-# -----------------------------------------------------------------------------
-# Evaluation
-
-def evaluate_ocr(model, tokenizer, dataset, device, max_samples=-1, max_tokens=2048, verbose=True):
-    """
-    Evaluate OCR model on a dataset.
-    Returns dict with metrics matching benchmark standards:
-    - Fox: precision
-    - OmniDocBench: normalized_edit_distance
-    """
-    import torch
+def evaluate_vision_task(model, tokenizer, dataset, device, max_samples=-1, batch_size=8):
+    """Run vision task evaluation with batched generation. Returns dict with avg_score and results."""
     from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
     from nanochat.engine import Engine
 
-    image_token_id = tokenizer.encode_special("<|image|>")
-    n_img_tokens = count_vision_tokens(base_size=1024)
-    bos = tokenizer.get_bos_token_id()
-    user_start = tokenizer.encode_special("<|user_start|>")
-    user_end = tokenizer.encode_special("<|user_end|>")
-    assistant_start = tokenizer.encode_special("<|assistant_start|>")
-    assistant_end = tokenizer.encode_special("<|assistant_end|>")
+    enc = tokenizer.enc
+    tok = lambda s: tokenizer.encode_special(s)
+    image_tok, n_img_tok = tok("<|image|>"), count_vision_tokens(base_size=1024)
 
     engine = Engine(model, tokenizer)
-    n_samples = len(dataset) if max_samples < 0 else min(max_samples, len(dataset))
+    n = len(dataset) if max_samples < 0 else min(max_samples, len(dataset))
 
-    results = []
-    total_ned, total_precision, total_f1 = 0.0, 0.0, 0.0
-    n_valid = 0
-
-    for i in range(n_samples):
+    # Collect all samples first
+    samples, prompts, pixel_values = [], [], []
+    for i in range(n):
         sample = dataset[i]
         if not sample.get("images"):
             continue
 
-        image = sample["images"][0]
-        gt_text = sample["messages"][1]["content"]
+        # build prompt: [bos, user_start, content, user_end, assistant_start]
+        prompt = sample["messages"][0]["content"].replace("<image>", "<|image|>")
+        ids = [tokenizer.get_bos_token_id(), tok("<|user_start|>")]
+        ids += list(enc.encode(prompt, allowed_special={"<|image|>"}))
+        ids += [tok("<|user_end|>"), tok("<|assistant_start|>")]
+        ids = expand_image_tokens(ids, image_tok, n_img_tok)
 
-        # Generate
-        pixel_values = process_image(image.convert("RGB"), base_size=1024).unsqueeze(0).to(device)
-        prompt = "<|image|>\nOCR this document."
-        prompt_content = tokenizer.enc.encode(prompt, allowed_special={"<|image|>"})
-        prompt_ids = [bos, user_start] + list(prompt_content) + [user_end, assistant_start]
-        expanded = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
+        pix = process_image(sample["images"][0].convert("RGB"), base_size=1024).unsqueeze(0).to(device)
 
-        gen_tokens = []
-        device_type = device.type if isinstance(device, torch.device) else device
-        with torch.autocast(device_type, dtype=torch.bfloat16):
-            for token_column, _ in engine.generate(expanded, pixel_values=pixel_values,
-                                                    max_tokens=max_tokens, temperature=0.0):
-                if token_column[0] == assistant_end:
-                    break
-                gen_tokens.append(token_column[0])
-        pred_text = tokenizer.decode(gen_tokens).strip()
+        samples.append((i, sample))
+        prompts.append(ids)
+        pixel_values.append(pix)
 
-        # Compute metrics
-        ned = normalized_edit_distance(pred_text, gt_text)
-        prec = precision(pred_text, gt_text)
-        f1 = f1_score(pred_text, gt_text)
+    # Process in batches
+    results, total = [], 0.0
+    for b in range(0, len(samples), batch_size):
+        batch_samples = samples[b:b + batch_size]
+        batch_prompts = prompts[b:b + batch_size]
+        batch_pix = pixel_values[b:b + batch_size]
 
-        total_ned += ned
-        total_precision += prec
-        total_f1 += f1
-        n_valid += 1
+        with torch.autocast(device.type, dtype=torch.bfloat16):
+            batch_tokens = engine.generate_prompts(batch_prompts, batch_pix, max_tokens=2048, temperature=0.0)
 
-        if verbose:
-            status = "+" if ned < 0.3 else ("~" if ned < 0.6 else "-")
-            print(f"{i:<4} ned={ned:.3f} prec={prec:.3f} {status}")
+        for (i, sample), tokens in zip(batch_samples, batch_tokens):
+            pred = tokenizer.decode(tokens).strip()
+            score = dataset.evaluate(sample, pred)
+            total += score
+            print(f"{i:4d} {'+' if score > 0.7 else '-'} {score:.3f}")
+            results.append({"idx": i, "score": score, "pred": pred, "gt": sample["messages"][1]["content"]})
 
-        results.append({
-            "index": i, "ned": round(ned, 4), "precision": round(prec, 4),
-            "f1": round(f1, 4), "metadata": sample.get("metadata", {}),
-            "pred": pred_text, "gt": gt_text,
-        })
-
-    # Collect sample outputs for debugging (first 5)
-    sample_outputs = [{"pred": r["pred"], "gt": r["gt"]} for r in results[:5]]
-
-    return {
-        "num_samples": n_valid,
-        "avg_ned": round(total_ned / n_valid, 4) if n_valid else 0,
-        "avg_precision": round(total_precision / n_valid, 4) if n_valid else 0,
-        "avg_f1": round(total_f1 / n_valid, 4) if n_valid else 0,
-        "results": results,
-        "sample_outputs": sample_outputs,
-    }
-
-
-# -----------------------------------------------------------------------------
-# Simple eval interface (matches chat_eval.run_chat_eval pattern)
-
-def run_vision_eval(task_name, model, tokenizer, max_problems=None):
-    """
-    Run vision eval on a task. Returns primary metric per DeepSeek-OCR paper.
-    - Fox: precision (higher is better)
-    - OmniDocBench: NED (lower is better)
-    """
-    from tasks.fox import Fox
-    from tasks.omnidocbench import OmniDocBench
-
-    task_module = {
-        'Fox': Fox,
-        'OmniDocBench': OmniDocBench,
-    }[task_name]
-    dataset = task_module()
-
-    device = next(model.parameters()).device
-    out = evaluate_ocr(model, tokenizer, dataset, device, max_samples=max_problems or -1, verbose=False)
-
-    if task_name == "Fox":
-        return out["avg_precision"]
-    else:
-        return out["avg_ned"]  # NED: lower is better (per DeepSeek-OCR paper)
+    avg = total / len(results) if results else 0
+    return {"avg_score": round(avg, 4), "num_samples": len(results), "results": results}
