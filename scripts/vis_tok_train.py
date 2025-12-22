@@ -29,6 +29,7 @@ from nanochat.tokenizer import RustBPETokenizer
 from tasks.finevision import FineVision
 from tasks.common import TaskMixture
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb
+from nanochat.checkpoint_manager import save_checkpoint
 from nanochat.vision_eval import evaluate_vision_task
 import wandb
 
@@ -351,14 +352,26 @@ for step in range(start_step, steps):
 if master_process:
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    # Save full model (for resuming/debugging)
-    full_path = os.path.join(checkpoint_dir, f"step_{steps}.pt")
-    torch.save(raw_model.state_dict(), full_path)
-    print0(f"Full checkpoint: {full_path}")
+    # Save full model using checkpoint_manager pattern (model_{step:06d}.pt)
+    meta_data = {
+        "model_config": {
+            "sequence_len": seq_len,
+            "vocab_size": vocab_size,
+            "n_layer": num_layers,
+            "n_head": num_heads,
+            "n_kv_head": num_kv_heads,
+            "n_embd": model_dim,
+        },
+        "stage": "vis_tok_train",
+        "num_epochs": num_epochs,
+        "steps": steps,
+        "base_size": base_size,
+    }
+    save_checkpoint(checkpoint_dir, steps, raw_model.state_dict(), None, meta_data, rank=ddp_rank)
 
     # Save DeepEncoder only (for Stage 2 - discard decoder per DeepSeek-OCR paper)
     deepencoder_state = {k: v for k, v in raw_model.state_dict().items() if not k.startswith('gpt.')}
-    deepencoder_path = os.path.join(checkpoint_dir, f"deepencoder_{steps}.pt")
+    deepencoder_path = os.path.join(checkpoint_dir, "deepencoder_stage1.pt")
     torch.save(deepencoder_state, deepencoder_path)
     print0(f"DeepEncoder checkpoint: {deepencoder_path}")
 

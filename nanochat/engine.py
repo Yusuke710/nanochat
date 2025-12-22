@@ -353,7 +353,7 @@ class Engine:
 
         # Prefill with KV cache
         m = self.model.config
-        kv = KVCache(B, max_len + max_tokens, m.n_kv_head, m.n_embd // m.n_head, m.n_layer)
+        kv = KVCache(B, m.n_kv_head, max_len + max_tokens, m.n_embd // m.n_head, m.n_layer)
         logits = self.model.forward(ids, pixel_values=pix, kv_cache=kv, attention_mask=mask)[:, -1, :]
         next_tok = torch.argmax(logits, dim=-1, keepdim=True) if temperature == 0 else None  # greedy only for now
 
