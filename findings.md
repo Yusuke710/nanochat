@@ -508,3 +508,36 @@ Avg overlap: 100.0%
 ```
 
 **Key Achievement**: All 10 samples achieved **100% word overlap** with very low loss (0.0033 average). The two-stage training pipeline successfully overfits the model to the training samples while maintaining proper vision encoding.
+
+## Vision Eval Metrics Verification (2024-12-22)
+
+### Fox Benchmark Metric
+
+**Issue Found**: Original implementation used character-level bag-of-characters precision.
+
+**Correct Definition** (per [Fox GitHub eval_tools/eval_ocr_test.py](https://github.com/ucaslcl/Fox)):
+- Uses **word-level** tokenization: `gt.split()` / `pred.split()`
+- Then **set-based** precision: `len(set(gt_words) & set(pred_words)) / len(set(pred_words))`
+- Paper quote: "due to the lengthy text of the document, we use word-level segmentation to calculate each indicator"
+
+**Fix Applied**: Updated `vision_eval.py` precision/recall/f1 to use word-level set-based metrics.
+
+### OmniDocBench Metric
+
+**Paper Definition** ([OmniDocBench CVPR 2025](https://arxiv.org/html/2412.07626v1)):
+- NED = `edit_distance(pred, gt) / max(len(pred), len(gt))` (character-level)
+- Paper uses "Adjacency Search Match" for paragraph-level matching
+
+**DeepSeek-OCR Usage** ([arxiv:2510.18234](https://arxiv.org/html/2510.18234v1)):
+- Uses simple character-level edit distance
+- Does NOT use paragraph matching
+- Quote: "All metrics in the table are edit distances, where smaller values indicate better performance"
+
+**Decision**: Keep current character-level NED implementation to match DeepSeek-OCR methodology.
+
+### Summary Table
+
+| Benchmark | Paper Metric | DeepSeek-OCR Usage | Our Implementation |
+|-----------|-------------|-------------------|-------------------|
+| Fox | Word-level precision | Precision (unclear level) | Word-level precision ✓ |
+| OmniDocBench | NED + paragraph matching | NED only | NED only ✓ |

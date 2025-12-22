@@ -284,13 +284,13 @@ for step in range(start_step, steps):
         model.train()
 
     # -------------------------------------------------------------------------
-    # Vision metrics (Fox precision, OmniDocBench 1-NED)
+    # Vision metrics (Fox precision ↑, OmniDocBench NED ↓) per DeepSeek-OCR paper
     if eval_metrics_every > 0 and (last_step or (step > 0 and step % eval_metrics_every == 0)):
         model.eval()
         metrics = {}
         with torch.no_grad(), autocast_ctx:
             metrics["fox_precision"] = run_vision_eval("Fox", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
-            metrics["omnidoc_acc"] = run_vision_eval("OmniDocBench", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+            metrics["omnidoc_ned"] = run_vision_eval("OmniDocBench", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
         metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({"step": step, **metrics})

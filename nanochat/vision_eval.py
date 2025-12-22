@@ -5,7 +5,6 @@ Fox: Precision (decoded text vs ground truth)
 OmniDocBench: Normalized Edit Distance (primary metric)
 """
 
-from collections import Counter
 
 # -----------------------------------------------------------------------------
 # Metrics
@@ -35,29 +34,27 @@ def normalized_edit_distance(pred, gt):
 
 
 def precision(pred, gt):
-    """Character-level precision. Used by Fox benchmark.
-    Measures what fraction of predicted characters are correct.
+    """Word-level precision. Used by Fox benchmark.
+    Matches Fox eval: set-based word overlap.
     """
-    if len(pred) == 0:
-        return 1.0 if len(gt) == 0 else 0.0
-    pred_counter = Counter(pred)
-    gt_counter = Counter(gt)
-    correct = sum((pred_counter & gt_counter).values())
-    return correct / len(pred)
+    pred_words = set(pred.split())
+    gt_words = set(gt.split())
+    if len(pred_words) == 0:
+        return 1.0 if len(gt_words) == 0 else 0.0
+    return len(pred_words & gt_words) / len(pred_words)
 
 
 def recall(pred, gt):
-    """Character-level recall."""
-    if len(gt) == 0:
-        return 1.0 if len(pred) == 0 else 0.0
-    pred_counter = Counter(pred)
-    gt_counter = Counter(gt)
-    correct = sum((pred_counter & gt_counter).values())
-    return correct / len(gt)
+    """Word-level recall. Matches Fox eval."""
+    pred_words = set(pred.split())
+    gt_words = set(gt.split())
+    if len(gt_words) == 0:
+        return 1.0 if len(pred_words) == 0 else 0.0
+    return len(pred_words & gt_words) / len(gt_words)
 
 
 def f1_score(pred, gt):
-    """Character-level F1 score."""
+    """Word-level F1 score. Matches Fox eval."""
     p = precision(pred, gt)
     r = recall(pred, gt)
     if p + r == 0:
@@ -157,9 +154,9 @@ def evaluate_ocr(model, tokenizer, dataset, device, max_samples=-1, max_tokens=2
 
 def run_vision_eval(task_name, model, tokenizer, max_problems=None):
     """
-    Run vision eval on a task. Returns primary metric (higher is better).
-    - Fox: precision
-    - OmniDocBench: 1 - NED
+    Run vision eval on a task. Returns primary metric per DeepSeek-OCR paper.
+    - Fox: precision (higher is better)
+    - OmniDocBench: NED (lower is better)
     """
     from tasks.fox import Fox
     from tasks.omnidocbench import OmniDocBench
@@ -176,4 +173,4 @@ def run_vision_eval(task_name, model, tokenizer, max_problems=None):
     if task_name == "Fox":
         return out["avg_precision"]
     else:
-        return 1 - out["avg_ned"]
+        return out["avg_ned"]  # NED: lower is better (per DeepSeek-OCR paper)

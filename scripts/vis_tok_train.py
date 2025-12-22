@@ -29,6 +29,7 @@ from nanochat.tokenizer import RustBPETokenizer
 from tasks.finevision import FineVision
 from tasks.common import TaskMixture
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb
+from nanochat.vision_eval import run_vision_eval
 import wandb
 
 # -----------------------------------------------------------------------------
@@ -51,6 +52,8 @@ resume_step = -1  # resume from step (-1 = fresh start)
 # Evaluation
 eval_every = 50  # evaluate every N steps
 eval_steps = 1  # number of batches to evaluate
+eval_metrics_every = 100  # evaluate Fox/OmniDocBench metrics every N steps (-1 = disable)
+eval_metrics_max_problems = 50  # max problems per task (Fox=112, OmniDocBench=1355)
 # Runtime
 device_type = ""  # cuda|cpu|mps (empty = autodetect)
 
@@ -229,6 +232,19 @@ for step in range(start_step, steps):
         print0(f"Step {step:05d} | Validation loss: {val_loss:.4f} | min: {min_val_loss:.4f}")
         total_training_flops = num_flops_per_token * tokens_per_batch * (step + 1)
         wandb_run.log({"step": step, "total_training_flops": total_training_flops, "val/loss": val_loss})
+        model.train()
+
+    # -------------------------------------------------------------------------
+    # Vision metrics (Fox precision ↑, OmniDocBench NED ↓) per DeepSeek-OCR paper
+    if eval_metrics_every > 0 and (last_step or (step > 0 and step % eval_metrics_every == 0)):
+        model.eval()
+        metrics = {}
+        with torch.no_grad(), autocast_ctx:
+            metrics["fox_precision"] = run_vision_eval("Fox", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+            metrics["omnidoc_ned"] = run_vision_eval("OmniDocBench", raw_model, tokenizer, max_problems=eval_metrics_max_problems)
+        metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
+        print0(f"Step {step:05d} | {metrics_str}")
+        wandb_run.log({"step": step, **metrics})
         model.train()
 
     # -------------------------------------------------------------------------
