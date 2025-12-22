@@ -227,7 +227,8 @@ for step in range(start_step, steps):
         if val_loss < min_val_loss:
             min_val_loss = val_loss
         print0(f"Step {step:05d} | Validation loss: {val_loss:.4f} | min: {min_val_loss:.4f}")
-        wandb_run.log({"step": step, "val/loss": val_loss})
+        total_training_flops = num_flops_per_token * tokens_per_batch * (step + 1)
+        wandb_run.log({"step": step, "total_training_flops": total_training_flops, "val/loss": val_loss})
         model.train()
 
     # -------------------------------------------------------------------------
