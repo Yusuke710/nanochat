@@ -36,6 +36,7 @@ from nanochat.deepencoder.load_pretrained import load_nanochat_gpt_from_hf
 from nanochat.multimodal_dataloader import create_multimodal_loader
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.common import compute_init, compute_cleanup, print0, autodetect_device_type, DummyWandb, get_base_dir
+from nanochat.checkpoint_manager import save_checkpoint
 from nanochat.vision_eval import evaluate_vision_task
 import wandb
 from tasks.finevision import FineVision
@@ -416,9 +417,24 @@ for step in range(start_step, steps):
 # Final checkpoint (master only)
 if master_process:
     os.makedirs(checkpoint_dir, exist_ok=True)
-    final_path = os.path.join(checkpoint_dir, f"step_{steps}.pt")
-    torch.save(raw_model.state_dict(), final_path)
-    print0(f"\nFinal checkpoint saved to {final_path}")
+
+    # Save full model using checkpoint_manager pattern (model_{step:06d}.pt)
+    meta_data = {
+        "model_config": {
+            "sequence_len": seq_len,
+            "vocab_size": vocab_size,
+            "n_layer": num_layers,
+            "n_head": num_heads,
+            "n_kv_head": num_kv_heads,
+            "n_embd": model_dim,
+        },
+        "stage": "vis_mid_train",
+        "num_epochs": num_epochs,
+        "steps": steps,
+        "base_size": base_size,
+    }
+    save_checkpoint(checkpoint_dir, steps, raw_model.state_dict(), None, meta_data, rank=ddp_rank)
+    print0(f"\nFinal checkpoint saved (model_{steps:06d}.pt)")
 
 # Final stats
 print0(f"Total training time: {total_training_time / 60:.2f}m")

@@ -17,6 +17,7 @@ from nanochat.gpt import GPTConfig
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
 from nanochat.tokenizer import RustBPETokenizer
 from nanochat.vision_eval import evaluate_vision_task
+from nanochat.checkpoint_manager import find_last_step, load_checkpoint
 
 from tasks.fox import Fox
 from tasks.omnidocbench import OmniDocBench
@@ -24,9 +25,10 @@ from tasks.omnidocbench import OmniDocBench
 # -----------------------------------------------------------------------------
 # config
 task = "fox"  # fox | omnidocbench
-checkpoint = ""  # path to checkpoint, empty = auto-detect latest
+checkpoint_dir = "checkpoints"  # checkpoint directory
+step = -1  # step to load (-1 = auto-detect latest)
 max_samples = -1  # -1 = all samples
-# model config
+# model config (will be loaded from metadata if available)
 sequence_len = 4096
 n_layer = 20
 n_head = 16
@@ -34,51 +36,49 @@ n_kv_head = 16
 n_embd = 1280
 # -----------------------------------------------------------------------------
 
+# Override from command line
+config_keys = [k for k, v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+exec(open(os.path.join('nanochat', 'configurator.py')).read())
 
 def main():
-    import sys
-    global task, checkpoint, max_samples
-    if len(sys.argv) > 1:
-        task = sys.argv[1]
-    if len(sys.argv) > 2:
-        if sys.argv[2].isdigit():
-            checkpoint = f"checkpoints/step_{sys.argv[2]}.pt"
-        else:
-            checkpoint = sys.argv[2]
-    if len(sys.argv) > 3:
-        max_samples = int(sys.argv[3])
+    global step
 
     # distributed / precision setup
     device_type = autodetect_device_type()
     _, ddp_rank, _, _, device = compute_init(device_type)
     autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16) if device_type == "cuda" else nullcontext()
 
-    # find checkpoint
-    ckpt = checkpoint
-    if not ckpt:
-        from pathlib import Path
-        ckpts = list(Path("checkpoints").glob("step_*.pt"))
-        ckpt = str(max(ckpts, key=lambda p: int(p.stem.split("_")[1]))) if ckpts else None
-    if not ckpt or not os.path.exists(ckpt):
-        print0("Checkpoint not found")
-        compute_cleanup()
-        return
+    # find checkpoint using checkpoint_manager
+    if step < 0:
+        step = find_last_step(checkpoint_dir)
+    print0(f"Loading checkpoint from step {step}...")
 
-    # load model
-    print0(f"Loading {ckpt}...")
+    # load checkpoint and metadata
+    model_data, _, meta_data = load_checkpoint(checkpoint_dir, step, device, load_optimizer=False)
+
+    # get model config from metadata (fallback to defaults)
+    model_config = meta_data.get("model_config", {})
+    seq_len = model_config.get("sequence_len", sequence_len)
+    vocab_size = model_config.get("vocab_size", 65540)
+    num_layers = model_config.get("n_layer", n_layer)
+    num_heads = model_config.get("n_head", n_head)
+    num_kv_heads = model_config.get("n_kv_head", n_kv_head)
+    model_dim = model_config.get("n_embd", n_embd)
+
+    # build model
     tokenizer = RustBPETokenizer.from_directory("tokenizer")
     image_token_id = tokenizer.encode_special("<|image|>")
     gpt_config = GPTConfig(
-        sequence_len=sequence_len,
-        vocab_size=tokenizer.get_vocab_size(),
-        n_layer=n_layer,
-        n_head=n_head,
-        n_kv_head=n_kv_head,
-        n_embd=n_embd,
+        sequence_len=seq_len,
+        vocab_size=vocab_size,
+        n_layer=num_layers,
+        n_head=num_heads,
+        n_kv_head=num_kv_heads,
+        n_embd=model_dim,
     )
     model = build_nano_deepseek_ocr(gpt_config=gpt_config)
     model.set_image_token_id(image_token_id)
-    model.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=False))
+    model.load_state_dict(model_data)
     model = model.eval().to(device)
 
     # load dataset

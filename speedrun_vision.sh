@@ -55,20 +55,20 @@ print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
 # Number of processes/GPUs to use
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 
-# Stage 1 and 2 training steps (configurable)
-STAGE1_STEPS=${STAGE1_STEPS:-300}
-STAGE2_STEPS=${STAGE2_STEPS:-5000}
+# Stage 1 and 2 training epochs (configurable)
+STAGE1_EPOCHS=${STAGE1_EPOCHS:-1}
+STAGE2_EPOCHS=${STAGE2_EPOCHS:-1}
 
 # -----------------------------------------------------------------------------
 # Stage 1: Vision Token Training
 # Train vision encoder (SAM + CLIP + projector) with LLM decoder
 
 echo "=============================================="
-echo "Stage 1: Vision Token Training (${STAGE1_STEPS} steps)"
+echo "Stage 1: Vision Token Training (${STAGE1_EPOCHS} epoch(s))"
 echo "=============================================="
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train -- \
-    --steps=$STAGE1_STEPS \
+    --num_epochs=$STAGE1_EPOCHS \
     --run=${WANDB_RUN}_stage1
 
 # -----------------------------------------------------------------------------
@@ -76,26 +76,26 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train 
 # Freeze SAM, train CLIP + projector + fresh GPT on mixed vision/text data
 
 echo "=============================================="
-echo "Stage 2: Vision Mid Training (${STAGE2_STEPS} steps)"
+echo "Stage 2: Vision Mid Training (${STAGE2_EPOCHS} epoch(s))"
 echo "=============================================="
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_mid_train -- \
-    --resume_from_deepencoder=checkpoints/deepencoder_${STAGE1_STEPS}.pt \
-    --steps=$STAGE2_STEPS \
+    --resume_from_deepencoder=checkpoints/deepencoder_stage1.pt \
+    --num_epochs=$STAGE2_EPOCHS \
     --run=${WANDB_RUN}_stage2
 
 # -----------------------------------------------------------------------------
-# Evaluation on Full OCR benchmarks
+# Evaluation on Full OCR benchmarks (auto-detects latest checkpoint)
 
 echo "=============================================="
 echo "Evaluating on Fox benchmark"
 echo "=============================================="
-python -m scripts.vision_eval --task fox --step $STAGE2_STEPS
+python -m scripts.vision_eval --task=fox
 
 echo "=============================================="
 echo "Evaluating on OmniDocBench benchmark"
 echo "=============================================="
-python -m scripts.vision_eval --task omnidocbench --step $STAGE2_STEPS
+python -m scripts.vision_eval --task=omnidocbench
 
 echo "=============================================="
 echo "Vision training complete!"
