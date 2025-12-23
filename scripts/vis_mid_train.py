@@ -66,14 +66,14 @@ warmup_steps = 100  # LR warmup steps
 lr_decay_step = 2000  # decay LR every N steps
 lr_decay_gamma = 0.1  # multiply LR by this factor at each decay
 # Checkpointing
-save_every = 500  # save every N steps (-1 = only at end)
+save_every = 10000  # save every N steps (-1 = only at end)
 resume_step = -1  # resume from step (-1 = fresh start)
 resume_from_deepencoder = ""  # DeepEncoder checkpoint path (REQUIRED for Stage 2)
 # Evaluation
 eval_every = 100  # evaluate every N steps
 eval_steps = 2  # number of batches to evaluate
 eval_metrics_every = 500  # evaluate Fox/OmniDocBench metrics every N steps
-eval_metrics_max_problems = 100  # max problems per task (Fox=112, OmniDocBench=1355)
+eval_metrics_max_problems = 50  # max problems per task (Fox=112, OmniDocBench=1355)
 # Runtime
 device_type = ""  # cuda|cpu|mps (empty = autodetect)
 
