@@ -52,7 +52,7 @@ from tasks.spellingbee import SimpleSpelling, SpellingBee
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Model
 base_size = 1024  # image resolution
-seq_len = 8192  # longer sequences for stage 2
+seq_len = 4096  # DeepSeek-OCR stage 2 uses 8182 
 # Training
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
