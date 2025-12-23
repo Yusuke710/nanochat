@@ -57,7 +57,7 @@ seq_len = 4096  # DeepSeek-OCR stage 2 uses 8182
 num_epochs = 2  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
 total_batch_size = 64  # effective batch size (1/10 of DeepSeek-OCR stage 2)
-micro_batch_size = 8  # batch size per GPU per micro step
+micro_batch_size = 4  # batch size per GPU per micro step
 lr = 3e-5  # learning rate (lower than stage 1)
 weight_decay = 0.0  # weight decay
 grad_clip = 1.0  # gradient clipping
