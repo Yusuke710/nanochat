@@ -275,7 +275,7 @@ for step in range(start_step, steps):
         from tasks.omnidocbench import OmniDocBench
         model.eval()
         with torch.no_grad(), autocast_ctx:
-            omnidoc = OmniDocBench()
+            omnidoc = OmniDocBench(lang="english")
             out = evaluate_vision_task(raw_model, tokenizer, omnidoc, device, max_samples=eval_metrics_max_problems)
         # avg_score is 1-NED, so NED = 1 - avg_score
         metrics = {"omnidoc_ned": round(1 - out["avg_score"], 4)}

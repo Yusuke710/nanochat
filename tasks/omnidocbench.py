@@ -32,14 +32,19 @@ class OmniDocBench(Task):
 
     Args:
         prompt: User prompt (default: "<image>\nFree OCR.")
+        lang: Filter by language ("english", "simplified_chinese", "en_ch_mixed", or None for all)
     """
 
-    def __init__(self, prompt="<image>\nFree OCR.", **kwargs):
+    def __init__(self, prompt="<image>\nFree OCR.", lang=None, **kwargs):
         super().__init__(**kwargs)
         self.prompt = prompt
         # Load dataset with annotations included
-        self.ds = load_dataset("Quivr/OmniDocBench", "full_dataset", split="train")
-        print(f"  Ready: {len(self.ds)} samples from OmniDocBench")
+        ds = load_dataset("Quivr/OmniDocBench", "full_dataset", split="train")
+        # Filter by language if specified
+        if lang:
+            ds = ds.filter(lambda x: x["page_info"]["page_attribute"]["language"] == lang)
+        self.ds = ds
+        print(f"  Ready: {len(self.ds)} samples from OmniDocBench (lang={lang})")
 
     @property
     def eval_type(self):

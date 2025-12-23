@@ -83,7 +83,7 @@ def main():
 
     # load dataset
     print0(f"Loading {task} dataset...")
-    dataset = Fox() if task == "fox" else OmniDocBench()
+    dataset = Fox() if task == "fox" else OmniDocBench(lang="english")
 
     # evaluate
     print0(f"Evaluating {len(dataset)} samples...")

@@ -46,10 +46,13 @@ def evaluate_vision_task(model, tokenizer, dataset, device, max_samples=-1, batc
 
         for (i, sample), tokens in zip(batch_samples, batch_tokens):
             pred = tokenizer.decode(tokens).strip()
+            gt = sample["messages"][1]["content"]
             score = dataset.evaluate(sample, pred)
             total += score
-            print(f"{i:4d} {'+' if score > 0.7 else '-'} {score:.3f}")
-            results.append({"idx": i, "score": score, "pred": pred, "gt": sample["messages"][1]["content"]})
+            print(f"{i:4d} | {score:.3f}")
+            print(f"  GT:   {gt[:100]}...")
+            print(f"  PRED: {pred[:100]}...")
+            results.append({"idx": i, "score": score, "pred": pred, "gt": gt})
 
     avg = total / len(results) if results else 0
     return {"avg_score": round(avg, 4), "num_samples": len(results), "results": results}
