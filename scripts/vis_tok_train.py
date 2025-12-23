@@ -42,7 +42,7 @@ seq_len = 4096  # sequence length
 # Training
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
-total_batch_size = 128  # 1/10 of the effective batch size (DeepSeek-OCR stage 1)
+total_batch_size = 128  # effective batch size (1/10 of DeepSeek-OCR stage 1)
 micro_batch_size = 10  # batch size per GPU per micro step
 lr = 5e-5  # learning rate
 weight_decay = 0.0  # weight decay

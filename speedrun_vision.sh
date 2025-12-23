@@ -52,6 +52,35 @@ print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
 # uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 
 # -----------------------------------------------------------------------------
+# Pre-download Stage 2 datasets in background while Stage 1 trains
+# Uses the same task classes as vis_mid_train.py to stay in sync
+
+echo "Starting background download of Stage 2 datasets..."
+python -c "
+# Prefetch Stage 2 datasets (mirrors vis_mid_train.py TaskMixture)
+from tasks.finevision import FineVision
+from tasks.smoltalk import SmolTalk
+from tasks.mmlu import MMLU
+from tasks.gsm8k import GSM8K
+
+print('Downloading Stage 2 vision datasets...')
+FineVision('LLaVA_Instruct_150K', prompt='Describe this image in detail.', start=8000)
+FineVision('LLaVA_Instruct_150K', prompt='Describe this image in detail.', stop=8000)
+
+print('Downloading Stage 2 text datasets...')
+SmolTalk(split='train')
+SmolTalk(split='test')
+MMLU(subset='auxiliary_train', split='train')
+MMLU(subset='all', split='test', stop=5200)
+GSM8K(subset='main', split='train')
+GSM8K(subset='main', split='test', stop=420)
+
+print('Stage 2 dataset downloads complete!')
+" &
+STAGE2_DOWNLOAD_PID=$!
+echo "Background download started (PID: $STAGE2_DOWNLOAD_PID)"
+
+# -----------------------------------------------------------------------------
 # Number of processes/GPUs to use
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 
@@ -74,6 +103,11 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train 
 # -----------------------------------------------------------------------------
 # Stage 2: Vision Mid Training
 # Freeze SAM, train CLIP + projector + fresh GPT on mixed vision/text data
+
+# Wait for Stage 2 dataset downloads to complete
+echo "Waiting for Stage 2 dataset downloads to complete..."
+wait $STAGE2_DOWNLOAD_PID
+echo "Stage 2 datasets ready!"
 
 echo "=============================================="
 echo "Stage 2: Vision Mid Training (${STAGE2_EPOCHS} epoch(s))"
