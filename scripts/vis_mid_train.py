@@ -54,7 +54,7 @@ run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 base_size = 1024  # image resolution
 seq_len = 4096  # DeepSeek-OCR stage 2 uses 8182 
 # Training
-num_epochs = 1  # number of epochs (used if steps == -1)
+num_epochs = 2  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
 total_batch_size = 64  # effective batch size (1/10 of DeepSeek-OCR stage 2)
 micro_batch_size = 8  # batch size per GPU per micro step
@@ -66,7 +66,6 @@ warmup_steps = 100  # LR warmup steps
 lr_decay_step = 2000  # decay LR every N steps
 lr_decay_gamma = 0.1  # multiply LR by this factor at each decay
 # Checkpointing
-checkpoint_dir = "checkpoints"  # where to save checkpoints
 save_every = 500  # save every N steps (-1 = only at end)
 resume_step = -1  # resume from step (-1 = fresh start)
 resume_from_deepencoder = ""  # DeepEncoder checkpoint path (REQUIRED for Stage 2)
@@ -122,6 +121,9 @@ gpt_config = GPTConfig(
     n_embd=model_dim,
 )
 model = build_nano_deepseek_ocr(gpt_config=gpt_config)
+
+# Checkpoint directory (same pattern as mid_train.py)
+checkpoint_dir = os.path.join(get_base_dir(), "mid_checkpoints", f"d{num_layers}")
 
 # Print model config
 print0(f"num_layers: {num_layers}")

@@ -136,6 +136,14 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_mid_train 
     --run=$WANDB_RUN
 
 # -----------------------------------------------------------------------------
+# Language evaluation (ensure language ability is preserved)
+
+echo "=============================================="
+echo "Evaluating language ability (ChatCORE)"
+echo "=============================================="
+torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -i vis_mid
+
+# -----------------------------------------------------------------------------
 # Evaluation on Full OCR benchmarks (auto-detects latest checkpoint)
 
 echo "=============================================="
