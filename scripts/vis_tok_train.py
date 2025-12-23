@@ -18,7 +18,7 @@ import torch
 import torch.distributed as dist
 
 from nanochat.gpt import GPTConfig
-from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
+from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr, VisionConfig
 from nanochat.deepencoder.load_pretrained import (
     load_sam_weights_from_hf,
     load_clip_weights_from_hf,
@@ -59,6 +59,7 @@ eval_metrics_every = 100  # evaluate Fox/OmniDocBench metrics every N steps (-1 
 eval_metrics_max_problems = 50  # max problems per task (Fox=112, OmniDocBench=1355)
 # Runtime
 device_type = ""  # cuda|cpu|mps (empty = autodetect)
+sam_gradient_checkpointing = False  # save memory on SAM global attention (slower)
 
 # Override from command line
 config_keys = [k for k, v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -103,7 +104,8 @@ gpt_config = GPTConfig(
     n_kv_head=num_kv_heads,
     n_embd=model_dim,
 )
-model = build_nano_deepseek_ocr(gpt_config=gpt_config)
+vision_config = VisionConfig(sam_gradient_checkpointing=sam_gradient_checkpointing)
+model = build_nano_deepseek_ocr(gpt_config=gpt_config, vision_config=vision_config)
 
 # Print model config
 print0(f"num_layers: {num_layers}")
@@ -112,6 +114,7 @@ print0(f"num_heads: {num_heads}")
 print0(f"num_kv_heads: {num_kv_heads}")
 print0(f"seq_len: {seq_len}")
 print0(f"base_size: {base_size}")
+print0(f"sam_gradient_checkpointing: {sam_gradient_checkpointing}")
 
 # Load pretrained weights
 print0("Loading pretrained weights...")

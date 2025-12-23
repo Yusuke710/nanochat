@@ -9,6 +9,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from typing import Optional, Tuple, Type
 from functools import partial
@@ -95,6 +96,7 @@ class ImageEncoderViT(nn.Module):
         rel_pos_zero_init: bool = True,
         window_size: int = 0,
         global_attn_indexes: Tuple[int, ...] = (),
+        gradient_checkpointing: bool = False,
     ) -> None:
         """
         Args:
@@ -113,8 +115,11 @@ class ImageEncoderViT(nn.Module):
             rel_pos_zero_init (bool): If True, zero initialize relative positional parameters.
             window_size (int): Window size for window attention blocks.
             global_attn_indexes (list): Indexes for blocks using global attention.
+            gradient_checkpointing (bool): If True, use gradient checkpointing on global attention blocks.
         """
         super().__init__()
+        self.gradient_checkpointing = gradient_checkpointing
+        self.global_attn_indexes = global_attn_indexes
         self.img_size = img_size
 
         self.patch_embed = PatchEmbed(
@@ -174,8 +179,11 @@ class ImageEncoderViT(nn.Module):
             # x = x + self.pos_embed
             x = x + get_abs_pos(self.pos_embed, x.size(1))
 
-        for blk in self.blocks:
-            x = blk(x)
+        for i, blk in enumerate(self.blocks):
+            if self.gradient_checkpointing and i in self.global_attn_indexes:
+                x = checkpoint(blk, x, use_reentrant=False)
+            else:
+                x = blk(x)
 
         neck_output  = self.neck(x.permute(0, 3, 1, 2))
         conv2_output  = self.net_2(neck_output)
@@ -480,13 +488,14 @@ class PatchEmbed(nn.Module):
         return x
 
 
-def build_sam_vit_b(checkpoint=None):
+def build_sam_vit_b(checkpoint=None, gradient_checkpointing=False):
     return _build_sam(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
         checkpoint=checkpoint,
+        gradient_checkpointing=gradient_checkpointing,
     )
 
 
@@ -496,6 +505,7 @@ def _build_sam(
     encoder_num_heads,
     encoder_global_attn_indexes,
     checkpoint=None,
+    gradient_checkpointing=False,
 ):
     prompt_embed_dim = 256
     image_size = 1024
@@ -514,6 +524,7 @@ def _build_sam(
             global_attn_indexes=encoder_global_attn_indexes,
             window_size=14,
             out_chans=prompt_embed_dim,
+            gradient_checkpointing=gradient_checkpointing,
         )
     
     if checkpoint is not None:

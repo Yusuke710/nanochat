@@ -53,6 +53,7 @@ class VisionConfig:
     downsample_ratio: int = 4  # SAM compression ratio
     sam_embed_dim: int = 1024  # SAM output dimension (after net_3)
     clip_embed_dim: int = 1024  # CLIP hidden dimension
+    sam_gradient_checkpointing: bool = False  # Save memory on SAM global attention layers
 
 
 class NanoDeepseekOCR(nn.Module):
@@ -77,7 +78,7 @@ class NanoDeepseekOCR(nn.Module):
         self.image_token_id = image_token_id
 
         # Vision encoders
-        self.sam_model = build_sam_vit_b()
+        self.sam_model = build_sam_vit_b(gradient_checkpointing=self.vision_config.sam_gradient_checkpointing)
         self.vision_model = build_clip_l()
         # CLIP's patch_embedding is unused (we use SAM features as patch embeddings instead)
         self.vision_model.embeddings.patch_embedding.requires_grad_(False)

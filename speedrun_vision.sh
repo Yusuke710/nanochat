@@ -102,6 +102,7 @@ NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 # Stage 1 and 2 training epochs (configurable)
 STAGE1_EPOCHS=${STAGE1_EPOCHS:-1}
 STAGE2_EPOCHS=${STAGE2_EPOCHS:-1}
+SAM_GRADIENT_CHECKPOINTING=${SAM_GRADIENT_CHECKPOINTING:-False}
 
 # -----------------------------------------------------------------------------
 # Stage 1: Vision Token Training
@@ -113,6 +114,7 @@ echo "=============================================="
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train -- \
     --num_epochs=$STAGE1_EPOCHS \
+    --sam_gradient_checkpointing=$SAM_GRADIENT_CHECKPOINTING \
     --run=$WANDB_RUN
 
 # -----------------------------------------------------------------------------
