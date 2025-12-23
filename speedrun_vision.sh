@@ -20,12 +20,15 @@ mkdir -p $NANOCHAT_BASE_DIR
 
 # install uv (if not already installed)
 command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+# for vastAI
+source $HOME/.local/bin/env 
 # create a .venv local virtual environment (if it doesn't exist)
 [ -d ".venv" ] || uv venv
 # install the repo dependencies
 uv sync --extra gpu
 # activate venv so that `python` uses the project's venv instead of system python
 source .venv/bin/activate
+
 
 # -----------------------------------------------------------------------------
 # wandb setup
@@ -52,10 +55,23 @@ print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
 # uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 
 # -----------------------------------------------------------------------------
+# Pre-download Stage 1 datasets first (full network bandwidth)
+
+echo "Downloading Stage 1 datasets..."
+python -c "
+from tasks.finevision import FineVision
+FineVision('olmOCR-mix-0225-documents', prompt='Free OCR.', start=12000)
+FineVision('olmOCR-mix-0225-documents', prompt='Free OCR.', stop=12000)
+FineVision('olmOCR-mix-0225-books', prompt='Free OCR.', start=800)
+FineVision('olmOCR-mix-0225-books', prompt='Free OCR.', stop=800)
+print('Stage 1 datasets ready!')
+"
+
+# -----------------------------------------------------------------------------
 # Pre-download Stage 2 datasets in background while Stage 1 trains
 # Uses the same task classes as vis_mid_train.py to stay in sync
 
-echo "Starting background download of Stage 2 datasets..."
+echo "Starting Stage 2 dataset download in background..."
 python -c "
 # Prefetch Stage 2 datasets (mirrors vis_mid_train.py TaskMixture)
 from tasks.finevision import FineVision
@@ -78,7 +94,6 @@ GSM8K(subset='main', split='test', stop=420)
 print('Stage 2 dataset downloads complete!')
 " &
 STAGE2_DOWNLOAD_PID=$!
-echo "Background download started (PID: $STAGE2_DOWNLOAD_PID)"
 
 # -----------------------------------------------------------------------------
 # Number of processes/GPUs to use
