@@ -95,7 +95,7 @@ print0(f"Device: {device}, DDP world size: {ddp_world_size}")
 
 # wandb logging init
 use_dummy_wandb = run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nano-deepseek-ocr", name=run, config=user_config)
+wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nano-deepseekocr-stage2", name=run, config=user_config)
 
 # -----------------------------------------------------------------------------
 # Load tokenizer

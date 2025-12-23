@@ -69,7 +69,7 @@ echo "=============================================="
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train -- \
     --num_epochs=$STAGE1_EPOCHS \
-    --run=${WANDB_RUN}_stage1
+    --run=$WANDB_RUN
 
 # -----------------------------------------------------------------------------
 # Stage 2: Vision Mid Training
@@ -82,7 +82,7 @@ echo "=============================================="
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_mid_train -- \
     --resume_from_deepencoder=checkpoints/deepencoder_stage1.pt \
     --num_epochs=$STAGE2_EPOCHS \
-    --run=${WANDB_RUN}_stage2
+    --run=$WANDB_RUN
 
 # -----------------------------------------------------------------------------
 # Evaluation on Full OCR benchmarks (auto-detects latest checkpoint)
