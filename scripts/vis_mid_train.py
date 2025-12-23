@@ -56,7 +56,7 @@ seq_len = 8192  # longer sequences for stage 2
 # Training
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
-target_examples_per_step = 640  # effective batch size per step (DeepSeek-OCR stage 2)
+target_examples_per_step = 64  # 1/10 of the effective batch size per step (DeepSeek-OCR stage 2)
 device_batch_size = 8  # max batch size per device to avoid OOM
 lr = 3e-5  # learning rate (lower than stage 1)
 weight_decay = 0.0  # weight decay
@@ -228,27 +228,48 @@ def get_lr(step):
 base_dir = get_base_dir()
 identity_conversations_filepath = os.path.join(base_dir, "identity_conversations.jsonl")
 
-train_ds = TaskMixture([
-    # OCR datasets (same as Stage 1) - skip first N samples reserved for val
-    FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),  # 229K PDF documents
-    FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),        # 15.2K book pages
-    # General vision
-    FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", start=8000),  # 158K
-    # Text tasks (from mid_train.py)
-    SmolTalk(split="train"),                               # 460K general conversations
-    MMLU(subset="auxiliary_train", split="train"),         # 100K multiple choice
-    GSM8K(subset="main", split="train"),                   # 8K math + tool use
-])
-val_ds = TaskMixture([
-    # Vision val (~5.2% ratio to match text tasks)
-    FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),   # 12K val samples
-    FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),         # 800 val samples
-    FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", stop=8000),  # 8K val
-    # Text val (from separate test splits)
-    SmolTalk(split="test"),                                # 24K rows in test set
-    MMLU(subset="all", split="test", stop=5200),           # 5.2K (5.2% of 100K train)
-    GSM8K(subset="main", split="test", stop=420),          # 420 (5.2% of 8K train)
-])
+# DDP: Rank 0 downloads datasets first, others wait then load from cache
+if ddp_rank == 0:
+    train_ds = TaskMixture([
+        # OCR datasets (same as Stage 1) - skip first N samples reserved for val
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),  # 229K PDF documents
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),        # 15.2K book pages
+        # General vision
+        FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", start=8000),  # 158K
+        # Text tasks (from mid_train.py)
+        SmolTalk(split="train"),                               # 460K general conversations
+        MMLU(subset="auxiliary_train", split="train"),         # 100K multiple choice
+        GSM8K(subset="main", split="train"),                   # 8K math + tool use
+    ])
+    val_ds = TaskMixture([
+        # Vision val (~5.2% ratio to match text tasks)
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),   # 12K val samples
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),         # 800 val samples
+        FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", stop=8000),  # 8K val
+        # Text val (from separate test splits)
+        SmolTalk(split="test"),                                # 24K rows in test set
+        MMLU(subset="all", split="test", stop=5200),           # 5.2K (5.2% of 100K train)
+        GSM8K(subset="main", split="test", stop=420),          # 420 (5.2% of 8K train)
+    ])
+if ddp:
+    dist.barrier()
+if ddp_rank != 0:
+    train_ds = TaskMixture([
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),
+        FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", start=8000),
+        SmolTalk(split="train"),
+        MMLU(subset="auxiliary_train", split="train"),
+        GSM8K(subset="main", split="train"),
+    ])
+    val_ds = TaskMixture([
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),
+        FineVision("LLaVA_Instruct_150K", prompt="Describe this image in detail.", stop=8000),
+        SmolTalk(split="test"),
+        MMLU(subset="all", split="test", stop=5200),
+        GSM8K(subset="main", split="test", stop=420),
+    ])
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
