@@ -541,3 +541,70 @@ Avg overlap: 100.0%
 |-----------|-------------|-------------------|-------------------|
 | Fox | Word-level precision | Precision (unclear level) | Word-level precision ✓ |
 | OmniDocBench | NED + paragraph matching | NED only | NED only ✓ |
+
+## Speedrun Testing (2024-12-22)
+
+### Environment
+- GPU: NVIDIA GeForce RTX 4090 (48GB VRAM)
+- Storage: 300GB available
+
+### Errors Encountered and Resolutions
+
+1. **GPU Count Mismatch**: Script defaulted to `NPROC_PER_NODE=8` but only 1 GPU available
+   - **Fix**: Set `NPROC_PER_NODE=1`
+
+2. **WandB Authentication**: Script appended `_stage1` to `WANDB_RUN=dummy`, breaking the `run == "dummy"` check
+   - **Fix**: Source `.env` file for proper WandB API key
+
+3. **OOM (Out of Memory)**: Default `device_batch_size=10` too high for 48GB GPU
+   - **Fix**: Reduce to `device_batch_size=4`
+
+4. **Disk Space Exhaustion**: HuggingFace cache grew to 281GB, hitting 300GB limit
+   - **Fix**: Clear processed datasets cache (`~/.cache/huggingface/datasets/`)
+
+5. **CRITICAL BUG - KVCache Argument Order** (engine.py:356):
+   ```python
+   # WRONG: kv = KVCache(B, max_len + max_tokens, m.n_kv_head, ...)
+   # CORRECT: kv = KVCache(B, m.n_kv_head, max_len + max_tokens, ...)
+   ```
+   - Swapped `seq_len` and `num_heads` arguments caused 225GB allocation request
+   - **Fix**: Corrected argument order
+
+6. **Checkpoint Naming**: Script expects `model_XXXXXX.pt` and `meta_XXXXXX.json` with 6-digit step number
+   - **Fix**: Create proper meta.json file with model_config
+
+### Data Download Metrics
+
+| Dataset | Files | Time | Samples |
+|---------|-------|------|---------|
+| olmOCR-mix-0225-documents | 196 | ~10:28 | 228,858 |
+| olmOCR-mix-0225-books | N/A | ~6s | 15,194 |
+| LLaVA_Instruct_150K | 154 | ~7:17 | 157,710 (partial) |
+
+**Total HuggingFace Cache Size**: 178GB (after cleanup)
+
+### Vision Eval Timing
+
+| Task | Samples | Time | Throughput |
+|------|---------|------|------------|
+| OmniDocBench (16 samples) | 16 | 3.0s | 5.3 samples/s |
+| OmniDocBench (full) | 981 | 491.1s (8.2min) | 2.0 samples/s |
+| Fox (full) | 112 | 6.6s | 17.0 samples/s |
+
+### Benchmark Results (Pretrained Model from HuggingFace)
+
+| Benchmark | Score | Samples | Notes |
+|-----------|-------|---------|-------|
+| OmniDocBench | 0.0046 | 981 | Very low - likely model undertrained or format mismatch |
+| Fox | 0.0089 | 112 | Very low - 1/112 samples matched |
+
+**DeepSeek-OCR Paper Results (for comparison)**:
+| Benchmark | DeepSeek-OCR Score |
+|-----------|-------------------|
+| OmniDocBench | 0.148 (NED, lower is better) |
+| Fox | 0.617 (Precision) |
+
+**Note**: The pretrained model shows very low scores, suggesting either:
+1. Model not fully trained
+2. Output format mismatch with evaluation expectations
+3. Different evaluation methodology
