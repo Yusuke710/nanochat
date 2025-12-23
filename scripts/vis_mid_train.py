@@ -56,8 +56,8 @@ seq_len = 8192  # longer sequences for stage 2
 # Training
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
-target_examples_per_step = 64  # 1/10 of the effective batch size per step (DeepSeek-OCR stage 2)
-device_batch_size = 8  # max batch size per device to avoid OOM
+total_batch_size = 64  # effective batch size (1/10 of DeepSeek-OCR stage 2)
+micro_batch_size = 8  # batch size per GPU per micro step
 lr = 3e-5  # learning rate (lower than stage 1)
 weight_decay = 0.0  # weight decay
 grad_clip = 1.0  # gradient clipping
@@ -196,7 +196,7 @@ raw_model = model.module if ddp else model  # unwrapped model for saving/attribu
 # Model stats
 trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 total_params = sum(p.numel() for p in model.parameters())
-tokens_per_batch = device_batch_size * seq_len * ddp_world_size
+tokens_per_batch = micro_batch_size * seq_len * ddp_world_size
 # Use GPT's estimate_flops for transformer part (Chinchilla formula)
 num_flops_per_token = raw_model.gpt.estimate_flops()
 print0(f"Parameters: {trainable_params:,} trainable / {total_params:,} total")
@@ -278,22 +278,20 @@ val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
 print0(f"Train tasks: {train_task_names}, Val tasks: {val_task_names}")
 print0(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
 
-# Derive steps from num_epochs if steps == -1
-examples_per_step = device_batch_size * ddp_world_size
-print0(f"Target examples per step: {target_examples_per_step}")
-print0(f"Device batch size: {device_batch_size}")
-print0(f"Examples per step (device_batch_size * ddp_world_size): {examples_per_step}")
-assert target_examples_per_step % examples_per_step == 0, "Target examples per step must be divisible by examples per step"
-grad_accum_steps = target_examples_per_step // examples_per_step
-print0(f"=> Setting grad accum steps: {grad_accum_steps}")
+# Derive gradient accumulation steps from total_batch_size (Karpathy nanoGPT pattern)
+assert total_batch_size % (micro_batch_size * ddp_world_size) == 0, "total_batch_size must be divisible by micro_batch_size * ddp_world_size"
+grad_accum_steps = total_batch_size // (micro_batch_size * ddp_world_size)
+print0(f"Total batch size: {total_batch_size}")
+print0(f"Micro batch size: {micro_batch_size}")
+print0(f"Gradient accumulation steps: {grad_accum_steps}")
 if steps == -1:
     # derive steps from num_epochs and the size of the dataset
     assert num_epochs > 0, "num_epochs must be positive if steps is -1"
-    steps = (len(train_ds) // target_examples_per_step) * num_epochs
+    steps = (len(train_ds) // total_batch_size) * num_epochs
 print0(f"Total steps: {steps}")
 
-train_loader = create_multimodal_loader(train_ds, tokenizer, device_batch_size, seq_len, base_size)
-val_loader_fn = lambda: create_multimodal_loader(val_ds, tokenizer, device_batch_size, seq_len, base_size)
+train_loader = create_multimodal_loader(train_ds, tokenizer, micro_batch_size, seq_len, base_size)
+val_loader_fn = lambda: create_multimodal_loader(val_ds, tokenizer, micro_batch_size, seq_len, base_size)
 
 # Verify first batch
 inputs, targets, media = next(iter(train_loader))
