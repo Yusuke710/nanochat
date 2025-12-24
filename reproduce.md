@@ -2,281 +2,138 @@
 
 Quick setup guide for rented GPU environments.
 
-## 1. Install uv
+## 1. Setup
 
 ```bash
+# Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc  # or restart terminal
-```
+source ~/.bashrc
 
-## 2. Clone and Setup
-
-```bash
+# Clone and install
 git clone <your-repo-url> nanochat
 cd nanochat
-uv sync
+uv sync --extra gpu
 ```
 
-## 3. Environment Variables
-
-Set these environment variables for downloading pretrained weights and logging:
+## 2. Environment Variables
 
 ```bash
-export HF_TOKEN=hf_xxx          # Required: HuggingFace token for downloading pretrained models
-export WANDB_API_KEY=xxx        # Optional: For wandb logging (set WANDB_RUN=<name> when running)
+export HF_TOKEN=hf_xxx          # Required: HuggingFace token
+export WANDB_API_KEY=xxx        # Optional: WandB logging
 ```
 
-## 4. Download Tokenizer
+---
+
+## Quick Start: Full Training (Stage 1 + Stage 2)
+
+Train vision encoder from scratch with a single command:
 
 ```bash
-uv run python -c "
+bash speedrun_vision.sh
+```
+
+This script handles everything:
+1. Sets up Python environment with uv
+2. Downloads tokenizer and datasets
+3. **Stage 1**: Trains SAM + CLIP + projector + GPT on OCR data
+4. **Stage 2**: Freezes SAM, loads fresh GPT, trains on mixed vision + text
+5. Evaluates on ChatCORE (language), Fox, and OmniDocBench (vision)
+
+**Config options** (environment variables):
+```bash
+NPROC_PER_NODE=8                  # Number of GPUs (default: 8)
+STAGE1_EPOCHS=1                   # Stage 1 epochs (default: 1)
+STAGE2_EPOCHS=1                   # Stage 2 epochs (default: 1)
+SAM_GRADIENT_CHECKPOINTING=True   # Enable for lower memory (default: False)
+WANDB_RUN=my-run                  # WandB run name (default: dummy = no logging)
+```
+
+**Example with logging:**
+```bash
+WANDB_RUN=vision-run bash speedrun_vision.sh
+```
+
+---
+
+## Quick Start: Stage 2 Only (Skip Stage 1)
+
+Use a pretrained DeepEncoder from HuggingFace:
+
+```bash
+# Download pretrained DeepEncoder
+DEEPENCODER_PATH=$(python -c "
 from huggingface_hub import hf_hub_download
-import shutil, os
-os.makedirs('tokenizer', exist_ok=True)
-path = hf_hub_download('nanochat-students/base-d20', 'tokenizer.pkl')
-shutil.copy(path, 'tokenizer/tokenizer.pkl')
-print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
-"
-```
+print(hf_hub_download('Yusuke710/nano-deepencoder', 'deepencoder_stage1.pt'))
+")
 
-## 5. Prepare Data
+# Run Stage 2 (multi-GPU)
+torchrun --standalone --nproc_per_node=8 -m scripts.vis_mid_train -- \
+    --resume_from_deepencoder=$DEEPENCODER_PATH \
+    --num_epochs=1
 
-For tier-1 overfitting (10 samples):
-```bash
-# Data should already be in data/train.json, data/val.json, data/images/
-ls data/
-```
-
-If missing, create from overfit_dataset.json:
-```bash
-cp data/overfit_dataset.json data/train.json
-cp data/overfit_dataset.json data/val.json
+# Or single GPU
+python -m scripts.vis_mid_train \
+    --resume_from_deepencoder=$DEEPENCODER_PATH \
+    --num_epochs=1
 ```
 
 ---
 
-## Stage 1: Vision Token Training (vis_tok_train.py)
+## Training Config Options
 
-All parameters trainable (SAM, CLIP, projector, GPT).
-
-Uses unified multimodal pipeline with PyTorch DataLoader for high MFU:
-- `TaskMixture` with `OverfitSamples` task
-- `create_multimodal_loader()` with num_workers=4, pin_memory, prefetch
-
-### Single GPU
+### Stage 1 (vis_tok_train.py)
 ```bash
-uv run python -m scripts.vis_tok_train --steps=300 --batch_size=2
+--steps=1000              # Number of training steps
+--num_epochs=1            # Or use epochs instead of steps
+--batch_size=4            # Batch size per GPU
+--lr=5e-5                 # Learning rate
+--eval_every=100          # Evaluate every N steps
+--save_every=100          # Save checkpoint every N steps
+--run=wandb-run-name      # WandB run name (dummy = no logging)
 ```
 
-### Multi-GPU (recommended)
+### Stage 2 (vis_mid_train.py)
 ```bash
-uv run torchrun --standalone --nproc_per_node=2 -m scripts.vis_tok_train \
-    --steps=300 \
-    --batch_size=2
-```
-
-### Config options
-```bash
---steps=300          # Number of training steps
---batch_size=2       # Batch size per GPU
---lr=5e-5            # Learning rate
---eval_every=100     # Evaluate every N steps
---save_every=100     # Save checkpoint every N steps (saves DeepEncoder checkpoint)
---resume_step=100    # Resume from checkpoint (e.g., step_100.pt)
-```
-
-### Expected output
-```
-Train samples: 10, Val samples: 10
-Batch shapes: inputs=torch.Size([2, 646]), targets=torch.Size([2, 646]), pixel_values=torch.Size([2, 3, 1024, 1024])
-step 00000/300 | loss: 6.4972 | mfu: 11.70
-step 00100/300 | Validation loss: 0.0169 | min: 0.0169
-step 00200/300 | Validation loss: 0.0072 | min: 0.0072
-step 00299/300 | Validation loss: 0.0082 | min: 0.0072
-Saved DeepEncoder checkpoint to checkpoints/deepencoder_300.pt
-```
-
-Note: Stage 1 saves a DeepEncoder-only checkpoint (SAM + CLIP + projector + special tokens) for Stage 2.
-
----
-
-## Stage 2: Vision Mid Training (vis_mid_train.py)
-
-SAM frozen, trains CLIP + projector + fresh GPT (per DeepSeek-OCR paper).
-
-Uses unified multimodal pipeline with PyTorch DataLoader:
-- `TaskMixture` with `OverfitSamples` (and optionally other tasks)
-- `create_multimodal_loader()` with num_workers=4, pin_memory, prefetch
-- Loads DeepEncoder from Stage 1 + fresh nanochat GPT from HuggingFace
-
-**Note:** Mixed vision+text batches not yet supported (padding issue). Currently all samples in a batch must have images OR all must be text-only.
-
-### Single GPU
-```bash
-uv run python -m scripts.vis_mid_train \
-    --steps=100 \
-    --batch_size=2 \
-    --resume_from_deepencoder=checkpoints/deepencoder_300.pt
-```
-
-### Multi-GPU (recommended)
-```bash
-uv run torchrun --standalone --nproc_per_node=2 -m scripts.vis_mid_train \
-    --steps=100 \
-    --batch_size=2 \
-    --resume_from_deepencoder=checkpoints/deepencoder_300.pt
-```
-
-### Config options
-```bash
---steps=5000                      # Number of training steps
---batch_size=4                    # Batch size per GPU
---lr=3e-5                         # Learning rate (lower than stage 1)
---seq_len=8192                    # Sequence length (use 2048 for 24GB GPUs)
---resume_from_deepencoder=...     # Path to DeepEncoder checkpoint (REQUIRED)
---resume_step=1000                # Resume from stage 2 checkpoint
---lr_decay_step=2000              # Decay LR every N steps
---lr_decay_gamma=0.1              # LR decay factor
-```
-
-### Configuring Task Mixture
-
-Edit the TaskMixture section at the top of vis_mid_train.py:
-```python
-train_ds = TaskMixture([
-    OverfitSamples(data_dir=data_dir, split="train"),  # vision task
-    # SmolTalk(split="train", stop=10),  # TODO: fix mixed batch handling
-])
-```
-
-### Expected output
-```
-Loading DeepEncoder: checkpoints/deepencoder_300.pt
-Loading fresh nanochat GPT from HuggingFace...
-Freezing SAM encoder...
-Parameters: 866,191,616 trainable / 962,362,880 total
-
-step 00000/100 | loss: 6.9126 | lr: 3.00e-07
-step 00050/100 | loss: 1.2345 | lr: 1.50e-05
-Step 00100 | Validation loss: 0.9700 | min: 0.9700
-SUCCESS: Stage 2 training converged!
+--resume_from_deepencoder=...   # Path to DeepEncoder checkpoint (REQUIRED)
+--steps=5000                    # Number of training steps
+--num_epochs=1                  # Or use epochs instead of steps
+--micro_batch_size=4            # Batch size per GPU
+--lr=3e-5                       # Learning rate (lower than stage 1)
+--seq_len=4096                  # Sequence length
+--resume_step=1000              # Resume from stage 2 checkpoint
+--run=wandb-run-name            # WandB run name (dummy = no logging)
 ```
 
 ---
 
-## Inference / Evaluation
+## Evaluation
 
 ```bash
-uv run python -m scripts.vision_sample \
-    --checkpoint=checkpoints/step_500.pt \
-    --data_dir=data
-```
+# Vision evaluation (Fox, OmniDocBench)
+python -m scripts.vision_eval --task=fox
+python -m scripts.vision_eval --task=omnidocbench
 
-### Expected output
-```
-ID              Loss    Overlap
-========================================
-receipt_000   0.0017    100%  ✓
-receipt_001   0.0007    100%  ✓
-...
-========================================
-Avg loss: 0.00xx
-Avg overlap: 99.x%
-```
-
----
-
-## Engine Test (KV Cache)
-
-Test that naive generation matches KV-cached Engine generation:
-
-```bash
-uv run python << 'EOF'
-import time, torch
-from pathlib import Path
-from contextlib import nullcontext
-from PIL import Image
-from nanochat.common import compute_init, autodetect_device_type
-from nanochat.tokenizer import RustBPETokenizer
-from nanochat.gpt import GPTConfig
-from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
-from nanochat.image_process import process_image, count_vision_tokens, expand_image_tokens
-from nanochat.engine import Engine
-
-ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init()
-autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
-
-tokenizer = RustBPETokenizer.from_directory("tokenizer")
-image_token_id = tokenizer.encode_special("<|image|>")
-
-ckpt_path = str(max(Path("checkpoints").glob("step_*.pt"), key=lambda p: int(p.stem.split("_")[1])))
-print(f"Loading {ckpt_path}")
-
-gpt_config = GPTConfig(sequence_len=4096, vocab_size=tokenizer.get_vocab_size(),
-                       n_layer=20, n_head=16, n_kv_head=16, n_embd=1280)
-model = build_nano_deepseek_ocr(gpt_config=gpt_config)
-model.set_image_token_id(image_token_id)
-model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
-model = model.eval().to(device)
-
-pixel_values = process_image(Image.open("data/images/chart_01.png").convert("RGB"), base_size=1024)
-pixel_values = pixel_values.unsqueeze(0).to(device)
-
-n_img_tokens = count_vision_tokens(base_size=1024)
-prompt_ids = [image_token_id] + tokenizer.encode("Describe:")
-expanded_ids = expand_image_tokens(prompt_ids, image_token_id, n_img_tokens)
-
-# Naive
-input_ids = torch.tensor([expanded_ids], dtype=torch.long, device=device)
-t0 = time.time()
-with autocast_ctx:
-    output = model.generate(input_ids, pixel_values=pixel_values, max_new_tokens=32, temperature=0.0)
-naive_tokens = output[0, len(expanded_ids):].tolist()
-naive_time = time.time() - t0
-
-# Engine
-engine = Engine(model, tokenizer)
-engine_tokens = []
-t0 = time.time()
-with autocast_ctx:
-    for tok, _ in engine.generate(expanded_ids, pixel_values=pixel_values, num_samples=1, max_tokens=32, temperature=0.0):
-        engine_tokens.append(tok[0])
-engine_time = time.time() - t0
-
-print(f"Naive: {tokenizer.decode(naive_tokens)[:50]}... ({naive_time:.2f}s)")
-print(f"Engine: {tokenizer.decode(engine_tokens)[:50]}... ({engine_time:.2f}s)")
-print(f"Match: {naive_tokens[:len(engine_tokens)] == engine_tokens}")
-print(f"Speedup: {naive_time/engine_time:.1f}x")
-EOF
+# Language evaluation (ChatCORE)
+torchrun --standalone --nproc_per_node=8 -m scripts.chat_eval -- -i vis_mid
 ```
 
 ---
 
 ## Quick Test Commands
 
-### Verify environment
 ```bash
-uv run python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA {torch.cuda.is_available()}')"
-```
+# Verify environment
+python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA {torch.cuda.is_available()}, GPUs: {torch.cuda.device_count()}')"
 
-### Verify multi-GPU
-```bash
-uv run python -c "import torch; print(f'GPUs: {torch.cuda.device_count()}')"
-```
-
-### Verify tokenizer
-```bash
-uv run python -c "
+# Verify tokenizer
+python -c "
 from nanochat.tokenizer import RustBPETokenizer
 tok = RustBPETokenizer.from_directory('tokenizer')
-print(f'Vocab size: {tok.get_vocab_size()}')
-print(f'Image token: {tok.encode_special(\"<|image|>\")}')
+print(f'Vocab size: {tok.get_vocab_size()}, Image token: {tok.encode_special(\"<|image|>\")}')
 "
-```
 
-### Verify model loading
-```bash
-uv run python -c "
+# Verify model
+python -c "
 from nanochat.nano_deepseek_ocr import build_nano_deepseek_ocr
 model = build_nano_deepseek_ocr()
 print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
@@ -285,206 +142,64 @@ print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
 
 ---
 
-## PyTorch Compatibility Notes
+## GPU Memory Reference
 
-### PyTorch 2.8+ Required (enable_gqa)
+| Config | GPU Memory | Notes |
+|--------|------------|-------|
+| Stage 1, batch=4, seq=4096 | ~40GB | A100 80GB OK |
+| Stage 1, batch=2, seq=4096 | ~22GB | 24GB GPU OK |
+| Stage 2, batch=4, seq=4096 | ~45GB | A100 80GB OK |
+| Stage 2, batch=2, seq=4096 | ~25GB | 24GB GPU tight |
 
-This codebase uses `enable_gqa` parameter in `F.scaled_dot_product_attention()` which requires PyTorch 2.5+. We target PyTorch 2.8+ for best performance with CUDA 12.8.
+**OOM fixes:**
+- Reduce `--batch_size` or `--micro_batch_size`
+- Reduce `--seq_len=2048`
+- Enable `SAM_GRADIENT_CHECKPOINTING=True`
+- Use more GPUs with torchrun
 
-If you need to run on an older PyTorch version (e.g., < 2.5) or on a GPU that only supports older CUDA, you can manually expand k,v heads instead of using `enable_gqa`. Replace the GQA logic in `nanochat/gpt.py`:
+---
 
-```python
-# Current (PyTorch 2.8+):
-enable_gqa = self.n_head != self.n_kv_head
-y = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=enable_gqa)
+## Upload Models to HuggingFace
 
-# Fallback (PyTorch < 2.5):
-# Note: enable_gqa removed for PyTorch <2.5 compatibility. When n_kv_head != n_head,
-# we manually expand k,v to match q's head count.
-if self.n_head != self.n_kv_head:
-    # GQA: expand k,v to match q's head count
-    n_rep = self.n_head // self.n_kv_head
-    k = k.repeat_interleave(n_rep, dim=1)
-    v = v.repeat_interleave(n_rep, dim=1)
-y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+```bash
+# Upload DeepEncoder (Stage 1)
+python -c "
+from huggingface_hub import HfApi
+api = HfApi()
+api.create_repo('Yusuke710/nano-deepencoder', exist_ok=True, private=True)
+api.upload_file('checkpoints/deepencoder_stage1.pt', 'deepencoder_stage1.pt', 'Yusuke710/nano-deepencoder')
+"
+
+# Upload full model (Stage 2)
+python -c "
+from huggingface_hub import HfApi
+api = HfApi()
+api.create_repo('Yusuke710/nano-deepseek-ocr', exist_ok=True, private=True)
+api.upload_file('checkpoints/model_final.pt', 'model.pt', 'Yusuke710/nano-deepseek-ocr')
+"
 ```
-
-Also update pyproject.toml to target the appropriate CUDA version (e.g., cu121 for CUDA 12.1).
-
-### Vision Dependencies
-
-The following vision-related dependencies are added for multimodal training:
-- `easydict`: Config management for DeepEncoder loading
-- `pillow`: Image loading and processing
-- `safetensors`: Efficient weight loading for pretrained models
-- `torchvision`: Image transforms and vision model utilities
-- `transformers`: CLIP text encoder and pretrained model loading
 
 ---
 
 ## Troubleshooting
 
-### OOM (Out of Memory)
-- Reduce `--batch_size=1`
-- Reduce `--seq_len=2048` (for stage 2)
-- Use more GPUs with torchrun
-
-### DDP errors
-- "Parameter indices which did not receive grad": Already fixed in code
-- If using `text_ratio > 0`, `find_unused_parameters=True` is auto-enabled
-
 ### Missing tokenizer
 ```bash
-# For vision training
-cp tokenizer/tokenizer.pkl tokenizer/tokenizer.pkl
-
-# For text dataloader
-mkdir -p ~/.cache/nanochat/tokenizer
-cp tokenizer/tokenizer.pkl ~/.cache/nanochat/tokenizer/tokenizer.pkl
-```
-
-### Missing FineWeb data
-```bash
-uv run python -m nanochat.dataset -n 2 -w 2
-```
-
----
-
-## GPU Memory Reference
-
-| Config | GPU Memory | Notes |
-|--------|------------|-------|
-| Stage 1, batch=1, seq=4096 | ~18GB | Single GPU OK |
-| Stage 1, batch=2, seq=4096 | ~22GB | 24GB GPU OK |
-| Stage 2, batch=1, seq=8192 | OOM | Use seq=2048 |
-| Stage 2, batch=1, seq=2048 | ~20GB | 24GB GPU OK |
-| Stage 2, batch=1, seq=4096 | ~22GB | 24GB GPU tight |
-
----
-
-## FineVision Training with WandB (A100 80GB)
-
-Training commands for FineVision dataset (chartqa) with WandB logging on A100 80GB.
-
-### Setup Environment Variables
-
-```bash
-# Export .env variables for WandB and HuggingFace
-set -a && source .env && set +a
-```
-
-### Stage 1: Vision Token Training (1000 steps)
-
-```bash
-source .venv/bin/activate && set -a && source .env && set +a && \
-python -m scripts.vis_tok_train \
-    --run=stage1-1000steps \
-    --steps=1000 \
-    --batch_size=10 \
-    --eval_every=50 \
-    --save_every=100
-```
-
-**Config:**
-- Dataset: FineVision/chartqa (18K train, 100 val)
-- batch_size=10, seq_len=4096
-- lr=5e-5 with cosine annealing
-- All components trained: SAM, CLIP, projector, GPT
-
-**Expected results:**
-- Min val loss: ~1.45 at step 850
-- Time: ~13 minutes
-- Output: `checkpoints/deepencoder_1000.pt`
-
-### Stage 2: Vision Mid Training (1500 steps)
-
-```bash
-source .venv/bin/activate && set -a && source .env && set +a && \
-python -m scripts.vis_mid_train \
-    --run=stage2-1500steps \
-    --steps=1500 \
-    --batch_size=2 \
-    --eval_every=100 \
-    --resume_from_deepencoder=checkpoints/deepencoder_1000.pt
-```
-
-**Config:**
-- Dataset: FineVision/chartqa + SmolTalk (mixed vision + text)
-- batch_size=2 (batch_size=4 causes OOM with seq_len=8192)
-- seq_len=8192
-- lr=3e-5 with StepLR decay
-- SAM frozen, trains CLIP + projector + fresh GPT
-
-**Expected results:**
-- Min val loss: ~2.16 at step 1400
-- Time: ~5 minutes
-- Output: `checkpoints/step_1500.pt`
-
-### Skip Stage 1: Download DeepEncoder from HuggingFace
-
-If you want to skip Stage 1, download the pretrained DeepEncoder and use its cached path:
-
-```python
+python -c "
 from huggingface_hub import hf_hub_download
-path = hf_hub_download("Yusuke710/nano-deepencoder", "deepencoder.pt")
-print(path)  # e.g. ~/.cache/huggingface/hub/models--Yusuke710--nano-deepencoder/.../deepencoder.pt
-```
-
-Then run Stage 2 with the cached path:
-```bash
-python -m scripts.vis_mid_train \
-    --resume_from_deepencoder=/root/.cache/huggingface/hub/models--Yusuke710--nano-deepencoder/snapshots/.../deepencoder.pt \
-    --steps=1500 --batch_size=2
-```
-
-### WandB Logging
-
-Both scripts log to project `nano-deepseek-ocr`:
-- Metrics: train/loss, train/lr, train/dt, train/tok_per_sec, train/mfu, train/total_flops, val/loss
-- Set `--run=dummy` to disable WandB logging
-
-### Memory Notes (A100 80GB)
-
-| Stage | batch_size | seq_len | Status |
-|-------|------------|---------|--------|
-| 1 | 10 | 4096 | OK |
-| 2 | 4 | 8192 | OOM |
-| 2 | 2 | 8192 | OK |
-
-### Upload Models to HuggingFace
-
-Upload trained checkpoints to HuggingFace (private repos). Running again will update/overwrite.
-
-**nano-deepencoder** (Stage 1 encoder-only checkpoint):
-```bash
-source .venv/bin/activate && set -a && source .env && set +a && python -c "
-from huggingface_hub import HfApi
-api = HfApi()
-repo_id = 'Yusuke710/nano-deepencoder'
-api.create_repo(repo_id, repo_type='model', exist_ok=True, private=True)
-api.upload_file(
-    path_or_fileobj='checkpoints/deepencoder_1000.pt',
-    path_in_repo='deepencoder.pt',
-    repo_id=repo_id,
-    repo_type='model',
-)
-print(f'Uploaded to https://huggingface.co/{repo_id}')
+import shutil, os
+os.makedirs('tokenizer', exist_ok=True)
+shutil.copy(hf_hub_download('nanochat-students/base-d20', 'tokenizer.pkl'), 'tokenizer/tokenizer.pkl')
 "
 ```
 
-**nano-deepseek-ocr** (Stage 2 full model):
-```bash
-source .venv/bin/activate && set -a && source .env && set +a && python -c "
-from huggingface_hub import HfApi
-api = HfApi()
-repo_id = 'Yusuke710/nano-deepseek-ocr'
-api.create_repo(repo_id, repo_type='model', exist_ok=True, private=True)
-api.upload_file(
-    path_or_fileobj='checkpoints/step_1500.pt',
-    path_in_repo='model.pt',
-    repo_id=repo_id,
-    repo_type='model',
-)
-print(f'Uploaded to https://huggingface.co/{repo_id}')
-"
+### PyTorch < 2.5 compatibility
+Replace `enable_gqa` in `nanochat/gpt.py`:
+```python
+# Instead of: y = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=True)
+if self.n_head != self.n_kv_head:
+    n_rep = self.n_head // self.n_kv_head
+    k = k.repeat_interleave(n_rep, dim=1)
+    v = v.repeat_interleave(n_rep, dim=1)
+y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
 ```

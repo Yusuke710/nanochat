@@ -608,3 +608,111 @@ Avg overlap: 100.0%
 1. Model not fully trained
 2. Output format mismatch with evaluation expectations
 3. Different evaluation methodology
+
+## OmniDocBench Eval Debugging (2024-12-23)
+
+### Problem
+Both step_4500 (Stage 2) and step_7226 (Stage 1) models produce nearly identical outputs for all images:
+```
+"The following is a list of the most common causes of death in the United States:
+- Heart disease
+- Stroke
+- Cancer..."
+```
+
+### Debug Investigation
+
+**Checked Pipeline Stages**:
+
+| Stage | Different between images? | Notes |
+|-------|---------------------------|-------|
+| SAM features | Yes (slightly) | mean diff: ~0.0002, max diff: varies |
+| CLIP features | Yes (slightly) | first 5 values differ |
+| Projected features | Yes | max diff: ~42.9 |
+| Merged embeddings | Yes | max diff: ~42.9 |
+| First token logits | Yes | max diff: 0.266 |
+
+**Key Finding**: The pipeline is working correctly - vision features ARE different between images. However:
+- Top-1 token is always "The" with nearly identical probability (~9.89) for different images
+- The small logit differences (~0.27 max) are not enough to change generation path
+
+### Root Cause
+**Training Issue**: The model has learned a very strong prior towards generating generic text ("The following is a list...") that dominates over the vision feature differences. The vision features exist but are too weak relative to the language model's text prior.
+
+**Possible Causes**:
+1. Vision encoder features too homogeneous (low variance between images)
+2. Projector not amplifying image-specific features
+3. GPT not learning to attend to vision tokens
+4. Training data format/distribution mismatch
+
+### Evidence
+- Text-only prompts work correctly ("What is capital of France?" → "Paris")
+- Model is not broken, just ignores vision features for generation
+- Vision embeddings ARE being properly scattered into text embeddings
+
+### Next Steps for Training
+1. Increase vision encoder training (more steps, higher LR)
+2. Add contrastive loss between image features
+3. Freeze GPT and train only vision components initially
+4. Check training data quality and prompt-response alignment
+
+### SAM Collapse Location Identified
+
+Tested with synthetic images (random noise, solid white, solid black) to find where embeddings become identical:
+
+| Stage | Cosine Similarity | Status |
+|-------|------------------|--------|
+| **PIX (input)** | -0.007 to -1.0 | ✓ Very different |
+| **SAM** | **0.9997 - 0.9999** | ❌ **COLLAPSE HERE** |
+| CLIP | 0.9989 - 0.9999 | Already collapsed |
+| COMBINED | 0.9989 - 0.9999 | Inherited |
+| PROJECTED | 0.9996 - 0.9999 | Inherited |
+| VISION_EMBEDS | 0.9996 - 0.9999 | Inherited |
+
+**Conclusion**: The SAM encoder produces nearly identical embeddings (cosine sim > 0.999) for completely different images. The collapse originates at SAM and propagates through the entire vision pipeline.
+
+### Default Output Source
+
+The model outputs "The following is a list of the most common causes of death in the United States..." for ANY image input (random noise, white, black all produce identical output).
+
+This phrase likely originates from:
+1. **SmolTalk training data** - Found health-related content about "causes of death", "heart disease" in samples
+2. **olmOCR PDF documents** that contain medical/health content
+
+The model learned to ignore image content entirely and output a memorized response pattern when it sees vision tokens + "Free OCR." prompt.
+
+### Why SAM Collapsed: Comparison with DeepSeek-OCR
+
+**DeepSeek-OCR Paper Training** (from [arxiv:2510.18234](https://arxiv.org/html/2510.18234v1)):
+
+| Aspect | DeepSeek-OCR | Our Training |
+|--------|--------------|--------------|
+| **DeepEncoder data** | 30M+ images | ~380K images |
+| **Batch size** | 1280 | 128 |
+| **Epochs** | 2 | ~1-2 |
+| **SAM in Stage 2** | FROZEN | FROZEN |
+| **Total sample iterations** | ~60M+ | ~900K |
+| **Training steps** | ~47,000 | ~7,000 |
+
+**Key insight**: DeepSeek-OCR trained SAM on **30 million images for 2 epochs with batch size 1280** before freezing it:
+- ~47,000 steps of DeepEncoder training
+- 60M+ sample iterations total
+- Massive data diversity (30M unique images)
+
+**Our training**:
+- ~7,000 steps with batch size 128
+- ~900K sample iterations
+- Only 380K unique images
+
+**Why collapse happens with limited data**:
+1. **100x less data diversity** (380K vs 30M images)
+2. **~70x fewer sample iterations** (900K vs 60M)
+3. **Smaller batch size** affects feature learning stability
+
+With limited data, SAM learns to output a "mean embedding" that minimizes average loss across all images rather than learning distinctive per-image features. DeepSeek's massive data diversity (30M images) forces SAM to learn generalizable visual features that distinguish different documents.
+
+**Solutions**:
+1. **Freeze SAM from the start** - use pretrained SAM weights without training
+2. **Get more training data** - scale closer to DeepSeek's 30M images
+3. **Train much longer** - many more epochs on current data to increase sample iterations
+4. **Use pretrained vision encoder** - leverage models already trained on large-scale data
