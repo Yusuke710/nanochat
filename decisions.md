@@ -204,3 +204,78 @@ python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencode
 ```
 
 **Reference**: DeepSeek-OCR paper Section 3.2 - "After DeepEncoder is ready, we use data mentioned in Section 3.4 to train the DeepSeek-OCR" (implying decoder is replaced)
+
+## LLaVA-Style Two-Phase Training (2024-12-31)
+
+**Problem**: Full SAM + CLIP training caused model collapse in Stage 1
+- SAM cosine similarity between images went from 0.59 → 0.9998 (complete collapse)
+- Model memorized outputs by prompt category, ignored image content
+- Root cause: Insufficient data diversity (380K images vs DeepSeek-OCR's 30M)
+
+**Decision**: Adopt LLaVA 1.5 style two-phase training
+
+### Phase 1: Alignment (vis_tok_train.py)
+**Train**: net_2, net_3 (compression conv adapter) + projector (~8.5M params)
+**Freeze**: SAM core (patch_embed, pos_embed, blocks, neck), CLIP, GPT
+
+**Hyperparameters** (LLaVA Stage 1):
+- LR: 1e-3 (high for small adapter training)
+- Batch: 256
+- Epochs: 1
+- Warmup: 3% of total steps (warmup_ratio=0.03)
+- LR schedule: Cosine annealing to 0
+- Data: LLaVA_Instruct_150K
+
+**Rationale**:
+- net_2 and net_3 are DeepSeek-OCR additions (not pretrained) - must be trained
+- SAM core is pretrained on 1B masks - freezing preserves visual features
+- High LR (1e-3) is safe for small adapter training (LLaVA recommendation)
+
+### Phase 2: Fine-tuning (vis_mid_train.py)
+**Train**: projector + GPT (~564M params)
+**Freeze**: ALL SAM (including net_2, net_3), CLIP
+
+**Hyperparameters** (LLaVA Stage 2):
+- LR: 2e-5 (lower for full model fine-tuning)
+- Batch: 128
+- Epochs: 1
+- Warmup: 3% of total steps (warmup_ratio=0.03)
+- LR schedule: Cosine annealing to 0
+- Data: 70% vision (olmOCR + LLaVA_Instruct) + 30% text (SmolTalk + MMLU + GSM8K)
+
+**Rationale**:
+- Vision tokenizer (SAM + conv + CLIP) is now frozen to preserve learned representations
+- Lower LR for fine-tuning full model (projector + GPT)
+- Mixed vision + text prevents catastrophic forgetting of language capabilities
+
+### Key Differences from DeepSeek-OCR
+| Aspect | DeepSeek-OCR | Our Approach |
+|--------|--------------|--------------|
+| Stage 1 | Trains full SAM + CLIP | Freeze SAM core, train only net_2/net_3 |
+| Data scale | 30M images | ~150K images |
+| Stage 2 | Freezes SAM + compressor | Freezes ALL vision (SAM + net_2/net_3 + CLIP) |
+
+**Why this works with limited data**:
+- Pretrained SAM/CLIP features are preserved (no collapse)
+- Only ~8.5M params trained in Phase 1 (vs 962M in original approach)
+- Phase 2 focuses on language model adaptation with frozen vision
+
+### Architecture Reference
+```
+SAM ViT-B (FREEZE in both phases)
+├── patch_embed
+├── pos_embed
+├── blocks[12]
+└── neck (768→256)
+
+DeepSeek Adapter (TRAIN Phase 1, FREEZE Phase 2)
+├── net_2: Conv2d(256→512)
+└── net_3: Conv2d(512→1024)
+
+CLIP ViT-L (FREEZE in both phases)
+
+Projector (TRAIN both phases)
+└── Linear(2048→1280)
+
+GPT (FREEZE Phase 1, TRAIN Phase 2)
+```

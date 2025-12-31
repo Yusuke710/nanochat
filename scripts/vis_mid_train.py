@@ -1,12 +1,13 @@
 """
-Vision Mid Training (Stage 2) - Train with SAM frozen.
+Vision Mid Training (Phase 2) - LLaVA-style fine-tuning.
 
-Fresh start: Load DeepEncoder from Stage 1 + fresh nanochat GPT from HuggingFace.
+Phase 2 trains projector + GPT with ALL vision encoders frozen.
+Fresh start: Load trained adapters from Phase 1 + fresh nanochat GPT from HuggingFace.
 Resume: Load full checkpoint directly (skip HF download).
 
 Usage:
-    # Fresh start (requires deepencoder checkpoint)
-    python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_300.pt
+    # Fresh start (requires Phase 1 checkpoint)
+    python -m scripts.vis_mid_train --resume_from_deepencoder=checkpoints/deepencoder_stage1.pt
 
     # Resume from full checkpoint
     python -m scripts.vis_mid_train --resume_step=500
@@ -14,13 +15,14 @@ Usage:
 Distributed:
     torchrun --nproc_per_node=8 -m scripts.vis_mid_train --resume_from_deepencoder=...
 
-Stage 2 differences from Stage 1:
-    - SAM encoder frozen (only CLIP, projector, GPT trained)
-    - Fresh GPT loaded from HuggingFace (Stage 1 decoder discarded)
-    - StepLR scheduler instead of constant LR
-    - Lower learning rate (3e-5)
-    - Longer sequences (8192)
-    - Mixed vision + text training (configurable ratio)
+Phase 2 differences from Phase 1 (LLaVA 1.5 style):
+    - ALL SAM frozen (including net_2, net_3)
+    - CLIP frozen
+    - Only projector + GPT trained
+    - Fresh GPT loaded from HuggingFace
+    - Cosine LR scheduler
+    - Lower learning rate (2e-5 vs 1e-3)
+    - Mixed vision + text training (70/30)
 """
 
 import os
@@ -52,19 +54,16 @@ from tasks.spellingbee import SimpleSpelling, SpellingBee
 run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Model
 base_size = 1024  # image resolution
-seq_len = 4096  # DeepSeek-OCR stage 2 uses 8182 
-# Training
-num_epochs = 2  # number of epochs (used if steps == -1)
+seq_len = 4096  # sequence length
+# Training (LLaVA 1.5 Stage 2 hyperparameters)
+num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
-total_batch_size = 64  # effective batch size (1/10 of DeepSeek-OCR stage 2)
+total_batch_size = 128  # effective batch size (LLaVA Stage 2)
 micro_batch_size = 4  # batch size per GPU per micro step
-lr = 3e-5  # learning rate (lower than stage 1)
-weight_decay = 0.0  # weight decay
+lr = 2e-5  # learning rate (LLaVA Stage 2: 2e-5)
+weight_decay = 0.0  # weight decay (LLaVA: 0)
 grad_clip = 1.0  # gradient clipping
-warmup_steps = 100  # LR warmup steps
-# LR schedule (StepLR)
-lr_decay_step = 2000  # decay LR every N steps
-lr_decay_gamma = 0.1  # multiply LR by this factor at each decay
+warmup_ratio = 0.03  # LR warmup ratio (LLaVA: 3% of total steps)
 # Checkpointing
 save_every = 10000  # save every N steps (-1 = only at end)
 resume_step = -1  # resume from step (-1 = fresh start)
@@ -178,10 +177,20 @@ else:
 model.set_image_token_id(image_token_id)
 
 # -----------------------------------------------------------------------------
-# Freeze SAM encoder (Stage 2: only train CLIP, projector, GPT)
-print0("Freezing SAM encoder...")
+# LLaVA-style Phase 2 freezing: Freeze ALL SAM (including net_2/net_3) + CLIP
+# Only train: projector + GPT
+print0("Freezing SAM encoder (including net_2, net_3)...")
 for p in model.sam_model.parameters():
     p.requires_grad = False
+
+print0("Freezing CLIP...")
+for p in model.vision_model.parameters():
+    p.requires_grad = False
+
+# Verify trainable parameters
+trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+frozen_count = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+print0(f"Trainable params: {trainable_count:,} | Frozen params: {frozen_count:,}")
 
 model = model.to(device)
 
@@ -214,12 +223,14 @@ trainable_params_list = [p for p in model.parameters() if p.requires_grad]
 optimizer = torch.optim.AdamW(trainable_params_list, lr=lr, weight_decay=weight_decay)
 
 def get_lr(step):
-    """Warmup then StepLR decay."""
+    """Warmup then cosine annealing to 0 (LLaVA style)."""
+    import math
+    warmup_steps = round(warmup_ratio * steps)
     if step < warmup_steps:
         return lr * (step + 1) / warmup_steps
-    # StepLR: decay by gamma every lr_decay_step steps
-    n_decays = (step - warmup_steps) // lr_decay_step
-    return lr * (lr_decay_gamma ** n_decays)
+    # Cosine annealing to 0
+    progress = (step - warmup_steps) / max(1, steps - warmup_steps)
+    return lr * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 # -----------------------------------------------------------------------------
 # Task Mixture (define your tasks here - task-agnostic design)

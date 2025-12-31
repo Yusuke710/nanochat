@@ -39,15 +39,15 @@ run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 # Model
 base_size = 1024  # image resolution
 seq_len = 4096  # sequence length
-# Training
+# Training (LLaVA 1.5 Stage 1 hyperparameters)
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
-total_batch_size = 128  # effective batch size (1/10 of DeepSeek-OCR stage 1)
+total_batch_size = 256  # effective batch size (LLaVA Stage 1)
 micro_batch_size = 4  # batch size per GPU per micro step
-lr = 5e-5  # learning rate
-weight_decay = 0.0  # weight decay
+lr = 1e-3  # learning rate (LLaVA Stage 1: 1e-3 for projector training)
+weight_decay = 0.0  # weight decay (LLaVA: 0)
 grad_clip = 1.0  # gradient clipping
-warmup_steps = 10  # LR warmup steps
+warmup_ratio = 0.03  # LR warmup ratio (LLaVA: 3% of total steps)
 # Checkpointing
 checkpoint_dir = "checkpoints"  # where to save checkpoints
 save_every = -1  # save every N steps (-1 = only at end)
@@ -123,6 +123,32 @@ model.sam_model = load_sam_weights_from_hf(model.sam_model, hf_token=hf_token, v
 model.vision_model = load_clip_weights_from_hf(model.vision_model, hf_token=hf_token, verbose=False)
 model.gpt = load_nanochat_gpt_from_hf(model.gpt, hf_token=hf_token, verbose=False)
 
+# -----------------------------------------------------------------------------
+# LLaVA-style freezing: Freeze SAM core, CLIP, and GPT
+# Only train: net_2, net_3 (compression adapter), projector, special tokens
+print0("Freezing SAM core (keeping net_2, net_3 trainable)...")
+for p in model.sam_model.patch_embed.parameters():
+    p.requires_grad = False
+model.sam_model.pos_embed.requires_grad = False
+for p in model.sam_model.blocks.parameters():
+    p.requires_grad = False
+for p in model.sam_model.neck.parameters():
+    p.requires_grad = False
+# net_2 and net_3 remain trainable (they are DeepSeek-OCR additions, not pretrained)
+
+print0("Freezing CLIP...")
+for p in model.vision_model.parameters():
+    p.requires_grad = False
+
+print0("Freezing GPT...")
+for p in model.gpt.parameters():
+    p.requires_grad = False
+
+# Verify trainable parameters
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+frozen_params = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+print0(f"Trainable params: {trainable_params:,} | Frozen params: {frozen_params:,}")
+
 # Expand embeddings for new special tokens (e.g., <|image|>)
 if vocab_size > pretrained_vocab_size:
     print0(f"Expanding embeddings from {pretrained_vocab_size} to {vocab_size}...")
@@ -166,11 +192,14 @@ print0(f"Estimated FLOPs per token: {num_flops_per_token:e}")
 promised_flops_per_sec = 989e12 * ddp_world_size
 
 # -----------------------------------------------------------------------------
-# Setup optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+# Setup optimizer (only trainable parameters)
+trainable_params_list = [p for p in model.parameters() if p.requires_grad]
+optimizer = torch.optim.AdamW(trainable_params_list, lr=lr, weight_decay=weight_decay)
+print0(f"Optimizer params: {sum(p.numel() for p in trainable_params_list):,}")
 
 def get_lr(step):
-    """Warmup then cosine annealing to 0."""
+    """Warmup then cosine annealing to 0 (LLaVA style)."""
+    warmup_steps = round(warmup_ratio * steps)
     if step < warmup_steps:
         return lr * (step + 1) / warmup_steps
     progress = (step - warmup_steps) / max(1, steps - warmup_steps)
@@ -178,29 +207,25 @@ def get_lr(step):
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
-# Stage 1: OCR-focused training with olmOCR documents and books
+# Phase 1: LLaVA-style alignment training with LLaVA_Instruct_150K
 # Note: FineVision uses start/stop to avoid train/val overlap (only has train split on HF)
-# Val ratio ~5.2% to match Stage 2 text task proportions
+# Val ratio ~5% (8000 samples for validation)
 # DDP: Rank 0 downloads datasets first, others wait then load from cache
 if ddp_rank == 0:
     train_ds = TaskMixture([
-        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),  # 229K PDF documents
-        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),        # 15.2K book pages
+        FineVision("LLaVA_Instruct_150K", start=8000),  # ~150K instruction-following samples
     ])
     val_ds = TaskMixture([
-        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),   # 12K val samples
-        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),         # 800 val samples
+        FineVision("LLaVA_Instruct_150K", stop=8000),   # 8K val samples
     ])
 if ddp:
     dist.barrier()
 if ddp_rank != 0:
     train_ds = TaskMixture([
-        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),
-        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),
+        FineVision("LLaVA_Instruct_150K", start=8000),
     ])
     val_ds = TaskMixture([
-        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),
-        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),
+        FineVision("LLaVA_Instruct_150K", stop=8000),
     ])
 train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
 val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
@@ -316,9 +341,9 @@ for step in range(start_step, steps):
         loss = loss / grad_accum_steps  # normalize for gradient accumulation
         loss.backward()
 
-    # Gradient clipping
+    # Gradient clipping (only trainable params)
     if grad_clip > 0:
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        torch.nn.utils.clip_grad_norm_(trainable_params_list, grad_clip)
 
     optimizer.step()
 

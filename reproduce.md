@@ -24,7 +24,7 @@ export WANDB_API_KEY=xxx        # Optional: WandB logging
 
 ---
 
-## Quick Start: Full Training (Stage 1 + Stage 2)
+## Quick Start: Full Training (Phase 1 + Phase 2)
 
 Train vision encoder from scratch with a single command:
 
@@ -35,16 +35,15 @@ bash speedrun_vision.sh
 This script handles everything:
 1. Sets up Python environment with uv
 2. Downloads tokenizer and datasets
-3. **Stage 1**: Trains SAM + CLIP + projector + GPT on OCR data
-4. **Stage 2**: Freezes SAM, loads fresh GPT, trains on mixed vision + text
+3. **Phase 1**: Trains net_2, net_3, projector on LLaVA_Instruct_150K (frozen: SAM core, CLIP, GPT)
+4. **Phase 2**: Trains projector + fresh GPT on mixed vision + text (frozen: ALL SAM, CLIP)
 5. Evaluates on ChatCORE (language), Fox, and OmniDocBench (vision)
 
 **Config options** (environment variables):
 ```bash
 NPROC_PER_NODE=8                  # Number of GPUs (default: 8)
-STAGE1_EPOCHS=1                   # Stage 1 epochs (default: 1)
-STAGE2_EPOCHS=1                   # Stage 2 epochs (default: 1)
-SAM_GRADIENT_CHECKPOINTING=True   # Enable for lower memory (default: False)
+PHASE1_EPOCHS=1                   # Phase 1 epochs (default: 1)
+PHASE2_EPOCHS=1                   # Phase 2 epochs (default: 1)
 WANDB_RUN=my-run                  # WandB run name (default: dummy = no logging)
 ```
 
@@ -55,7 +54,7 @@ WANDB_RUN=vision-run bash speedrun_vision.sh
 
 ---
 
-## Quick Start: Stage 2 Only (Skip Stage 1)
+## Quick Start: Phase 2 Only (Skip Phase 1)
 
 Use a pretrained DeepEncoder from HuggingFace:
 
@@ -66,7 +65,7 @@ from huggingface_hub import hf_hub_download
 print(hf_hub_download('Yusuke710/nano-deepencoder', 'deepencoder_stage1.pt'))
 ")
 
-# Run Stage 2 (multi-GPU)
+# Run Phase 2 (multi-GPU)
 torchrun --standalone --nproc_per_node=8 -m scripts.vis_mid_train -- \
     --resume_from_deepencoder=$DEEPENCODER_PATH \
     --num_epochs=1
@@ -81,26 +80,26 @@ python -m scripts.vis_mid_train \
 
 ## Training Config Options
 
-### Stage 1 (vis_tok_train.py)
+### Phase 1 (vis_tok_train.py) - LLaVA Stage 1 style
 ```bash
 --steps=1000              # Number of training steps
 --num_epochs=1            # Or use epochs instead of steps
---batch_size=4            # Batch size per GPU
---lr=5e-5                 # Learning rate
+--micro_batch_size=4      # Batch size per GPU (total_batch_size=256)
+--lr=1e-3                 # Learning rate (LLaVA Stage 1)
 --eval_every=100          # Evaluate every N steps
 --save_every=100          # Save checkpoint every N steps
 --run=wandb-run-name      # WandB run name (dummy = no logging)
 ```
 
-### Stage 2 (vis_mid_train.py)
+### Phase 2 (vis_mid_train.py) - LLaVA Stage 2 style
 ```bash
---resume_from_deepencoder=...   # Path to DeepEncoder checkpoint (REQUIRED)
+--resume_from_deepencoder=...   # Path to Phase 1 checkpoint (REQUIRED)
 --steps=5000                    # Number of training steps
 --num_epochs=1                  # Or use epochs instead of steps
---micro_batch_size=4            # Batch size per GPU
---lr=3e-5                       # Learning rate (lower than stage 1)
+--micro_batch_size=4            # Batch size per GPU (total_batch_size=128)
+--lr=2e-5                       # Learning rate (LLaVA Stage 2)
 --seq_len=4096                  # Sequence length
---resume_step=1000              # Resume from stage 2 checkpoint
+--resume_step=1000              # Resume from Phase 2 checkpoint
 --run=wandb-run-name            # WandB run name (dummy = no logging)
 ```
 
@@ -146,15 +145,14 @@ print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
 
 | Config | GPU Memory | Notes |
 |--------|------------|-------|
-| Stage 1, batch=4, seq=4096 | ~40GB | A100 80GB OK |
-| Stage 1, batch=2, seq=4096 | ~22GB | 24GB GPU OK |
-| Stage 2, batch=4, seq=4096 | ~45GB | A100 80GB OK |
-| Stage 2, batch=2, seq=4096 | ~25GB | 24GB GPU tight |
+| Phase 1, batch=4, seq=4096 | ~20GB | SAM frozen, much lower memory |
+| Phase 1, batch=8, seq=4096 | ~35GB | A100 80GB OK |
+| Phase 2, batch=4, seq=4096 | ~25GB | All vision frozen |
+| Phase 2, batch=8, seq=4096 | ~40GB | A100 80GB OK |
 
 **OOM fixes:**
-- Reduce `--batch_size` or `--micro_batch_size`
+- Reduce `--micro_batch_size`
 - Reduce `--seq_len=2048`
-- Enable `SAM_GRADIENT_CHECKPOINTING=True`
 - Use more GPUs with torchrun
 
 ---
@@ -162,7 +160,7 @@ print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
 ## Upload Models to HuggingFace
 
 ```bash
-# Upload DeepEncoder (Stage 1)
+# Upload DeepEncoder (Phase 1)
 python -c "
 from huggingface_hub import HfApi
 api = HfApi()
@@ -170,7 +168,7 @@ api.create_repo('Yusuke710/nano-deepencoder', exist_ok=True, private=True)
 api.upload_file('checkpoints/deepencoder_stage1.pt', 'deepencoder_stage1.pt', 'Yusuke710/nano-deepencoder')
 "
 
-# Upload full model (Stage 2)
+# Upload full model (Phase 2)
 python -c "
 from huggingface_hub import HfApi
 api = HfApi()
