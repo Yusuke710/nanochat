@@ -43,7 +43,7 @@ seq_len = 4096  # sequence length
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
 total_batch_size = 256  # effective batch size (LLaVA Stage 1)
-micro_batch_size = 4  # batch size per GPU per micro step
+micro_batch_size = 32  # batch size per GPU per micro step
 lr = 1e-3  # learning rate (LLaVA Stage 1: 1e-3 for projector training)
 weight_decay = 0.0  # weight decay (LLaVA: 0)
 grad_clip = 1.0  # gradient clipping
