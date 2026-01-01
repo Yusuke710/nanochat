@@ -56,7 +56,13 @@ print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
 
 # -----------------------------------------------------------------------------
 # Number of processes/GPUs to use
-NPROC_PER_NODE=${NPROC_PER_NODE:-8}
+NPROC_PER_NODE=${NPROC_PER_NODE:-1}
+
+# Micro batch size per GPU
+MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-8}
+
+# Total batch size
+TOTAL_BATCH_SIZE=${TOTAL_BATCH_SIZE:-$(($NPROC_PER_NODE * $MICRO_BATCH_SIZE))}
 
 # Phase 1 and 2 training epochs (configurable)
 PHASE1_EPOCHS=${PHASE1_EPOCHS:-2}
@@ -75,16 +81,13 @@ echo "=============================================="
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train -- \
     --num_epochs=$PHASE1_EPOCHS \
+    --micro_batch_size=$MICRO_BATCH_SIZE \
+    --total_batch_size=$TOTAL_BATCH_SIZE \
     --run=$WANDB_RUN
 
 # -----------------------------------------------------------------------------
 # Phase 2: Fine-tuning (LLaVA-style)
 # Train projector + fresh GPT with frozen vision encoders
-
-# Wait for Phase 2 dataset downloads to complete
-echo "Waiting for Phase 2 dataset downloads to complete..."
-wait $PHASE2_DOWNLOAD_PID
-echo "Phase 2 datasets ready!"
 
 echo "=============================================="
 echo "Phase 2: Fine-tuning (${PHASE2_EPOCHS} epoch(s))"
@@ -96,6 +99,8 @@ echo "=============================================="
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_mid_train -- \
     --resume_from_deepencoder=checkpoints/deepencoder_stage1.pt \
     --num_epochs=$PHASE2_EPOCHS \
+    --micro_batch_size=$MICRO_BATCH_SIZE \
+    --total_batch_size=$TOTAL_BATCH_SIZE \
     --run=$WANDB_RUN
 
 # -----------------------------------------------------------------------------
