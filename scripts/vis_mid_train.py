@@ -59,7 +59,7 @@ seq_len = 4096  # sequence length
 num_epochs = 1  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
 total_batch_size = 128  # effective batch size (LLaVA Stage 2)
-micro_batch_size = 32  # batch size per GPU per micro step
+micro_batch_size = 8  # batch size per GPU per micro step
 lr = 2e-5  # learning rate (LLaVA Stage 2: 2e-5)
 weight_decay = 0.0  # weight decay (LLaVA: 0)
 grad_clip = 1.0  # gradient clipping
@@ -71,7 +71,7 @@ resume_from_deepencoder = ""  # DeepEncoder checkpoint path (REQUIRED for Stage 
 # Evaluation
 eval_every = 100  # evaluate every N steps
 eval_steps = 2  # number of batches to evaluate
-eval_metrics_every = 500  # evaluate Fox/OmniDocBench metrics every N steps
+eval_metrics_every = 100  # evaluate Fox/OmniDocBench metrics every N steps
 eval_metrics_max_problems = 50  # max problems per task (Fox=112, OmniDocBench=1355)
 # Runtime
 device_type = ""  # cuda|cpu|mps (empty = autodetect)

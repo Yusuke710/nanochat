@@ -716,3 +716,139 @@ With limited data, SAM learns to output a "mean embedding" that minimizes averag
 2. **Get more training data** - scale closer to DeepSeek's 30M images
 3. **Train much longer** - many more epochs on current data to increase sample iterations
 4. **Use pretrained vision encoder** - leverage models already trained on large-scale data
+
+## Checkpoint Evaluation (2026-01-01)
+
+### Checkpoints Found
+
+| Checkpoint | Size | Stage | Step |
+|-----------|------|-------|------|
+| `deepencoder_stage1.pt` | 1.53 GB | Phase 1 | N/A |
+| `model_000584.pt` | 3.67 GB | vis_tok_train | 584 |
+
+### Model Structure Verification
+
+**Stage 1 (deepencoder_stage1.pt)** - Vision Encoder Only:
+- Contains: SAM model, CLIP vision model, projector
+- Keys: sam_model.*, vision_model.*, projector.*
+- No GPT weights (as expected for DeepEncoder-only checkpoint)
+
+**Stage 2 (model_000584.pt)** - Full VLM:
+- Contains: SAM model, CLIP vision model, projector, GPT
+- Keys: sam_model.*, vision_model.*, projector.*, gpt.*
+- Model config from meta_000584.json:
+  - sequence_len: 4096
+  - vocab_size: 65537
+  - n_layer: 20
+  - n_head: 16
+  - n_embd: 1280
+
+### Training Metadata
+
+From WandB run summary:
+- Total training FLOPs: 315.4 trillion
+- Final train loss: 2.49
+- Final val loss: 2.44
+- Training step: 583
+- Tokens/sec: 21,970
+
+### Benchmark Results (step 584 checkpoint)
+
+| Benchmark | Score | Samples | Time | Throughput |
+|-----------|-------|---------|------|------------|
+| **Fox** | 0.3949 | 112 | 98.1s | 1.1 samples/s |
+| **OmniDocBench** | 0.0769 | 290 | 420s | 0.7 samples/s |
+
+### Model Output Analysis
+
+**Critical Issue**: Model generates repetitive, irrelevant outputs:
+- Typical output: "The image features a large clock on the left side, with a clock on the right side..."
+- Same pattern regardless of document content
+- Model is NOT performing OCR - outputs generic image descriptions
+
+**Sample Predictions**:
+| Sample | Ground Truth (truncated) | Prediction |
+|--------|-------------------------|------------|
+| Fox #0 | "297. It was felt by most speakers..." | "The image features a large clock on the sidewalk..." |
+| Fox #5 | "Cortical Specification and Neuronal Migration..." | "The image features a large clock on the left side..." |
+| OmniDocBench #0 | "Copyright... McGraw-Hill Companies..." | "The image shows a man standing in front of a large white sign..." |
+
+### Root Cause Analysis
+
+The model exhibits classic symptoms of **vision encoder collapse** combined with **memorized generic outputs**:
+
+1. **Vision-Language Misalignment**: The vision encoder features are not being properly translated to text generation. The projector may not be effectively bridging the vision-language gap.
+
+2. **Generic Output Memorization**: The model has learned to output stock phrases like "The image features a large clock" instead of reading actual document content.
+
+3. **Training Data/Stage Mismatch**: The meta file indicates stage "vis_tok_train" (Stage 1), but the checkpoint contains GPT weights. This suggests possible confusion in the training pipeline.
+
+4. **Insufficient Training**: At only 584 steps with the current training setup, the model may not have converged on the OCR task.
+
+### Comparison with Expected Results
+
+| Metric | Current | DeepSeek-OCR Paper |
+|--------|---------|-------------------|
+| Fox (Precision) | 0.39 | ~0.62 |
+| OmniDocBench (NED) | 0.08 | ~0.15 (lower is better) |
+
+**Note**: Current OmniDocBench score of 0.08 would actually be excellent if the model were working correctly (NED is edit distance, lower is better), but the qualitative outputs confirm the model is not functioning as an OCR system.
+
+### Recommendations
+
+1. **Verify training pipeline**: Ensure Stage 1 and Stage 2 are properly separated
+2. **Check vision encoder training**: SAM collapse may be occurring as documented earlier
+3. **Increase training duration**: 584 steps may be insufficient
+4. **Use pretrained DeepEncoder**: Start from a properly trained vision encoder
+
+## Stage 2 Testing and Collapse Analysis (2026-01-01)
+
+### Stage 2 (vis_mid_train.py) Status
+
+**Works correctly** with reduced batch size. Default batch_size=32 causes OOM.
+
+**Maximum batch sizes for Stage 2 (H100 93GB VRAM)**:
+| Sequence Length | Max Batch Size | Memory Usage |
+|-----------------|----------------|--------------|
+| 1500 | 16 | 62.9 GB |
+| 4096 (default) | 8 | 84.1 GB |
+
+**Why Stage 2 needs more memory than Stage 1**:
+- Stage 1: ~8.5M trainable params (net_2, net_3, projector) - GPT frozen
+- Stage 2: ~564M trainable params (projector + GPT) - 66x more gradients to store
+
+### Net_2/Net_3 Collapse Analysis
+
+Compared feature similarity **before and after Stage 1 training**:
+
+| Image Pair | PRETRAINED | TRAINED | Change |
+|------------|------------|---------|--------|
+| white vs black | -0.71 | 0.99 | +1.70 |
+| white vs noise | 0.04 | 0.82 | +0.78 |
+| noise vs red | 0.19 | 0.98 | +0.79 |
+| black vs red | 0.55 | 0.81 | +0.25 |
+| **AVERAGE** | **0.02** | **0.90** | **+0.88** |
+
+**CONCLUSION**: Stage 1 training causes feature collapse in net_2/net_3 layers:
+- Pretrained SAM produces highly distinct features (avg similarity ~0.02)
+- After training, features become nearly identical (avg similarity ~0.90)
+- The training optimizes for minimizing loss by collapsing to a "mean embedding"
+
+### Feature Similarity by Layer (After Training)
+
+| Layer | Avg Similarity | Status |
+|-------|---------------|--------|
+| after_neck (256ch) | 0.85 | Partial collapse |
+| after_net2 (512ch) | 0.76 | Best separation |
+| after_net3 (1024ch) | 0.87 | High collapse |
+| vision_embeds (final) | 0.92 | Near collapse |
+
+### Root Cause
+
+The net_2/net_3 conv layers are trained with limited data diversity, causing them to learn features that minimize average loss across all images rather than preserving image-specific information.
+
+### Recommendations
+
+1. **Freeze net_2/net_3 during Stage 1** - Use pretrained weights
+2. **Add contrastive loss** - Encourage distinct features between different images
+3. **More data diversity** - Current 380K images insufficient vs DeepSeek-OCR's 30M
