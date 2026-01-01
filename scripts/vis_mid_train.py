@@ -41,6 +41,7 @@ from nanochat.common import compute_init, compute_cleanup, print0, autodetect_de
 from nanochat.checkpoint_manager import save_checkpoint
 from nanochat.vision_eval import evaluate_vision_task
 import wandb
+import json
 from tasks.finevision import FineVision
 from tasks.smoltalk import SmolTalk
 from tasks.common import TaskMixture
@@ -366,6 +367,10 @@ for step in range(start_step, steps):
         metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({"step": step, **metrics})
+        if master_process:
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            with open(os.path.join(checkpoint_dir, f"eval_{run}.jsonl"), "a") as f:
+                f.write(json.dumps({"step": step, **metrics, **out}) + "\n")
         model.train()
 
     # -------------------------------------------------------------------------

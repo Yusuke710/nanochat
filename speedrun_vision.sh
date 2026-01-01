@@ -55,52 +55,11 @@ print('Tokenizer downloaded to tokenizer/tokenizer.pkl')
 # uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 
 # -----------------------------------------------------------------------------
-# Pre-download Phase 1 dataset (LLaVA_Instruct_150K for alignment)
-
-echo "Downloading Phase 1 dataset (LLaVA_Instruct_150K)..."
-python -c "
-from tasks.finevision import FineVision
-FineVision('LLaVA_Instruct_150K', start=8000)
-FineVision('LLaVA_Instruct_150K', stop=8000)
-print('Phase 1 dataset ready!')
-"
-
-# -----------------------------------------------------------------------------
-# Pre-download Phase 2 datasets in background while Phase 1 trains
-# Uses the same task classes as vis_mid_train.py to stay in sync
-
-echo "Starting Phase 2 dataset download in background..."
-python -c "
-# Prefetch Phase 2 datasets (mirrors vis_mid_train.py TaskMixture)
-from tasks.finevision import FineVision
-from tasks.smoltalk import SmolTalk
-from tasks.mmlu import MMLU
-from tasks.gsm8k import GSM8K
-
-print('Downloading Phase 2 vision datasets (olmOCR)...')
-FineVision('olmOCR-mix-0225-documents', prompt='Free OCR.', start=12000)
-FineVision('olmOCR-mix-0225-documents', prompt='Free OCR.', stop=12000)
-FineVision('olmOCR-mix-0225-books', prompt='Free OCR.', start=800)
-FineVision('olmOCR-mix-0225-books', prompt='Free OCR.', stop=800)
-
-print('Downloading Phase 2 text datasets...')
-SmolTalk(split='train')
-SmolTalk(split='test')
-MMLU(subset='auxiliary_train', split='train')
-MMLU(subset='all', split='test', stop=5200)
-GSM8K(subset='main', split='train')
-GSM8K(subset='main', split='test', stop=420)
-
-print('Phase 2 dataset downloads complete!')
-" &
-PHASE2_DOWNLOAD_PID=$!
-
-# -----------------------------------------------------------------------------
 # Number of processes/GPUs to use
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 
 # Phase 1 and 2 training epochs (configurable)
-PHASE1_EPOCHS=${PHASE1_EPOCHS:-1}
+PHASE1_EPOCHS=${PHASE1_EPOCHS:-2}
 PHASE2_EPOCHS=${PHASE2_EPOCHS:-1}
 
 # -----------------------------------------------------------------------------
@@ -111,7 +70,7 @@ echo "=============================================="
 echo "Phase 1: Alignment Training (${PHASE1_EPOCHS} epoch(s))"
 echo "  - Training: net_2, net_3, projector (~8.5M params)"
 echo "  - Frozen: SAM core, CLIP, GPT"
-echo "  - Data: LLaVA_Instruct_150K"
+echo "  - Data: LLaVA + olmOCR documents + books"
 echo "=============================================="
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.vis_tok_train -- \

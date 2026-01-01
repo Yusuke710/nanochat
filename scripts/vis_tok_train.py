@@ -32,6 +32,7 @@ from nanochat.common import compute_init, compute_cleanup, print0, autodetect_de
 from nanochat.checkpoint_manager import save_checkpoint
 from nanochat.vision_eval import evaluate_vision_task
 import wandb
+import json
 
 # -----------------------------------------------------------------------------
 # User settings (overridable via CLI)
@@ -40,7 +41,7 @@ run = "dummy"  # wandb run name ("dummy" = no wandb logging)
 base_size = 1024  # image resolution
 seq_len = 4096  # sequence length
 # Training (LLaVA 1.5 Stage 1 hyperparameters)
-num_epochs = 1  # number of epochs (used if steps == -1)
+num_epochs = 2  # number of epochs (used if steps == -1)
 steps = -1  # number of training steps (-1 = derive from num_epochs)
 total_batch_size = 256  # effective batch size (LLaVA Stage 1)
 micro_batch_size = 32  # batch size per GPU per micro step
@@ -207,25 +208,32 @@ def get_lr(step):
 
 # -----------------------------------------------------------------------------
 # Setup dataloaders (unified multimodal pipeline with PyTorch DataLoader)
-# Phase 1: LLaVA-style alignment training with LLaVA_Instruct_150K
+# Phase 1: LLaVA-style alignment training with same vision data as vis_mid
 # Note: FineVision uses start/stop to avoid train/val overlap (only has train split on HF)
-# Val ratio ~5% (8000 samples for validation)
 # DDP: Rank 0 downloads datasets first, others wait then load from cache
 if ddp_rank == 0:
     train_ds = TaskMixture([
         FineVision("LLaVA_Instruct_150K", start=8000),  # ~150K instruction-following samples
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),  # 229K PDF documents
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),        # 15.2K book pages
     ])
     val_ds = TaskMixture([
         FineVision("LLaVA_Instruct_150K", stop=8000),   # 8K val samples
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),   # 12K val samples
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),         # 800 val samples
     ])
 if ddp:
     dist.barrier()
 if ddp_rank != 0:
     train_ds = TaskMixture([
         FineVision("LLaVA_Instruct_150K", start=8000),
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", start=12000),
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", start=800),
     ])
     val_ds = TaskMixture([
         FineVision("LLaVA_Instruct_150K", stop=8000),
+        FineVision("olmOCR-mix-0225-documents", prompt="Free OCR.", stop=12000),
+        FineVision("olmOCR-mix-0225-books", prompt="Free OCR.", stop=800),
     ])
 train_task_names = [t.__class__.__name__ for t in train_ds.tasks]
 val_task_names = [t.__class__.__name__ for t in val_ds.tasks]
@@ -307,6 +315,10 @@ for step in range(start_step, steps):
         metrics_str = ', '.join(f'{k}: {v:.4f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({"step": step, **metrics})
+        if master_process:
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            with open(os.path.join(checkpoint_dir, f"eval_{run}.jsonl"), "a") as f:
+                f.write(json.dumps({"step": step, **metrics, **out}) + "\n")
         model.train()
 
     # -------------------------------------------------------------------------
